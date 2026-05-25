@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "clover-mcp"
+version = "0.1.0"
+description = "MCP server for the Clover POS REST API — sales, inventory, orders, customers, and employees for small businesses"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Mikel Diaz", email = "mikeldev62@gmail.com" }]
+keywords = ["mcp", "clover", "pos", "small-business", "ai", "anthropic"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "fastmcp>=2.0",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+clover-mcp = "clover_mcp.__main__:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/clover_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = [
+    "src/clover_mcp/config.py",
+    "src/clover_mcp/errors.py",
+    "src/clover_mcp/windowing.py",
+    "src/clover_mcp/formatting.py",
+    "src/clover_mcp/shaping.py",
+    "src/clover_mcp/auth.py",
+    "src/clover_mcp/client.py",
+]

@@ -1,0 +1,129 @@
+"""Allowlist-based response projection for Clover API payloads.
+
+Every tool passes raw Clover JSON through a shaper before returning it to the
+LLM. Only explicitly-named fields are kept; anything else is silently dropped.
+This prevents PII leakage (customer cards, employee PINs) and keeps context
+windows lean.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+
+def _pick(src: dict[str, Any], *keys: str) -> dict[str, Any]:
+    """Return a new dict with only the specified keys (missing keys are skipped)."""
+    return {k: src[k] for k in keys if k in src}
+
+
+def shape_merchant(raw: dict[str, Any]) -> dict[str, Any]:
+    return _pick(
+        raw,
+        "id", "name", "owner", "currency", "defaultCurrency",
+        "timezone", "country", "address", "phoneNumber", "website",
+        "businessType", "merchantPlan",
+    )
+
+
+def shape_item(raw: dict[str, Any]) -> dict[str, Any]:
+    out = _pick(
+        raw,
+        "id", "name", "price", "priceType", "sku", "code", "cost",
+        "available", "hidden", "isRevenue",
+    )
+    # Flatten nested categories to just ids
+    if "categories" in raw:
+        cats = raw["categories"]
+        elements = cats.get("elements", cats) if isinstance(cats, dict) else cats
+        out["categories"] = [c.get("id") for c in elements if isinstance(c, dict)]
+    # Include stock quantity if expanded
+    if "itemStock" in raw and isinstance(raw["itemStock"], dict):
+        out["stock_quantity"] = raw["itemStock"].get("quantity")
+    return out
+
+
+def shape_order(raw: dict[str, Any]) -> dict[str, Any]:
+    out = _pick(
+        raw,
+        "id", "state", "total", "taxAmount", "currency",
+        "createdTime", "modifiedTime", "clientCreatedTime",
+        "note", "orderType",
+    )
+    if "employee" in raw and isinstance(raw["employee"], dict):
+        out["employee_id"] = raw["employee"].get("id")
+    # Customer IDs only — never full customer records with card data
+    if "customers" in raw:
+        custs = raw["customers"]
+        elements = custs.get("elements", custs) if isinstance(custs, dict) else custs
+        out["customer_ids"] = [c.get("id") for c in elements if isinstance(c, dict)]
+    # Line items — lean projection
+    if "lineItems" in raw:
+        items = raw["lineItems"]
+        elements = items.get("elements", items) if isinstance(items, dict) else items
+        out["line_items"] = [_shape_line_item(li) for li in elements if isinstance(li, dict)]
+    # Service charges total
+    if "serviceCharge" in raw and isinstance(raw["serviceCharge"], dict):
+        out["service_charge"] = raw["serviceCharge"].get("amount")
+    return out
+
+
+def _shape_line_item(raw: dict[str, Any]) -> dict[str, Any]:
+    return _pick(raw, "id", "name", "price", "unitQty", "unitName", "note", "refunded")
+
+
+def shape_payment(raw: dict[str, Any]) -> dict[str, Any]:
+    out = _pick(
+        raw,
+        "id", "amount", "tipAmount", "taxAmount", "cashbackAmount",
+        "result", "createdTime", "modifiedTime", "offline", "note",
+    )
+    if "tender" in raw and isinstance(raw["tender"], dict):
+        out["tender"] = raw["tender"].get("label") or raw["tender"].get("id")
+    if "employee" in raw and isinstance(raw["employee"], dict):
+        out["employee_id"] = raw["employee"].get("id")
+    if "order" in raw and isinstance(raw["order"], dict):
+        out["order_id"] = raw["order"].get("id")
+    # cardTransaction deliberately excluded — contains full PAN / entry mode
+    return out
+
+
+def shape_customer(raw: dict[str, Any], include: list[str] | None = None) -> dict[str, Any]:
+    """Project a customer record.
+
+    include: list of optional field groups to add (e.g. ["addresses", "orders"]).
+    "cards" is never included regardless of include — privacy/compliance.
+    """
+    out = _pick(raw, "id", "firstName", "lastName", "marketingAllowed", "customerSince")
+    # Flatten email / phone arrays
+    if "emailAddresses" in raw:
+        elems = raw["emailAddresses"]
+        elements = elems.get("elements", elems) if isinstance(elems, dict) else elems
+        out["emails"] = [e.get("emailAddress") for e in elements if isinstance(e, dict)]
+    if "phoneNumbers" in raw:
+        elems = raw["phoneNumbers"]
+        elements = elems.get("elements", elems) if isinstance(elems, dict) else elems
+        out["phones"] = [e.get("phoneNumber") for e in elements if isinstance(e, dict)]
+    # Optional inclusions — cards never allowed
+    allowed_includes = {"addresses", "orders"}
+    for field in (include or []):
+        if field in allowed_includes and field in raw:
+            out[field] = raw[field]
+    return out
+
+
+def shape_employee(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project an employee record — PIN fields are always excluded."""
+    return _pick(raw, "id", "name", "nickname", "email", "role", "isOwner", "customId")
+    # Deliberately excluded: pin, unhashedPin
+
+
+def shape_shift(raw: dict[str, Any]) -> dict[str, Any]:
+    out = _pick(
+        raw,
+        "id", "inTime", "outTime", "overrideInTime", "overrideOutTime",
+        "inTimestamp", "outTimestamp",
+    )
+    if "employee" in raw and isinstance(raw["employee"], dict):
+        out["employee_id"] = raw["employee"].get("id")
+        out["employee_name"] = raw["employee"].get("name")
+    return out
