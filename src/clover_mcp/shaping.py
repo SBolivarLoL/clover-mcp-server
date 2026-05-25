@@ -19,17 +19,34 @@ def _pick(src: dict[str, Any], *keys: str) -> dict[str, Any]:
 def shape_merchant(raw: dict[str, Any]) -> dict[str, Any]:
     return _pick(
         raw,
-        "id", "name", "owner", "currency", "defaultCurrency",
-        "timezone", "country", "address", "phoneNumber", "website",
-        "businessType", "merchantPlan",
+        "id",
+        "name",
+        "owner",
+        "currency",
+        "defaultCurrency",
+        "timezone",
+        "country",
+        "address",
+        "phoneNumber",
+        "website",
+        "businessType",
+        "merchantPlan",
     )
 
 
 def shape_item(raw: dict[str, Any]) -> dict[str, Any]:
     out = _pick(
         raw,
-        "id", "name", "price", "priceType", "sku", "code", "cost",
-        "available", "hidden", "isRevenue",
+        "id",
+        "name",
+        "price",
+        "priceType",
+        "sku",
+        "code",
+        "cost",
+        "available",
+        "hidden",
+        "isRevenue",
     )
     # Flatten nested categories to just ids
     if "categories" in raw:
@@ -45,9 +62,16 @@ def shape_item(raw: dict[str, Any]) -> dict[str, Any]:
 def shape_order(raw: dict[str, Any]) -> dict[str, Any]:
     out = _pick(
         raw,
-        "id", "state", "total", "taxAmount", "currency",
-        "createdTime", "modifiedTime", "clientCreatedTime",
-        "note", "orderType",
+        "id",
+        "state",
+        "total",
+        "taxAmount",
+        "currency",
+        "createdTime",
+        "modifiedTime",
+        "clientCreatedTime",
+        "note",
+        "orderType",
     )
     if "employee" in raw and isinstance(raw["employee"], dict):
         out["employee_id"] = raw["employee"].get("id")
@@ -74,8 +98,16 @@ def _shape_line_item(raw: dict[str, Any]) -> dict[str, Any]:
 def shape_payment(raw: dict[str, Any]) -> dict[str, Any]:
     out = _pick(
         raw,
-        "id", "amount", "tipAmount", "taxAmount", "cashbackAmount",
-        "result", "createdTime", "modifiedTime", "offline", "note",
+        "id",
+        "amount",
+        "tipAmount",
+        "taxAmount",
+        "cashbackAmount",
+        "result",
+        "createdTime",
+        "modifiedTime",
+        "offline",
+        "note",
     )
     if "tender" in raw and isinstance(raw["tender"], dict):
         out["tender"] = raw["tender"].get("label") or raw["tender"].get("id")
@@ -105,7 +137,7 @@ def shape_customer(raw: dict[str, Any], include: list[str] | None = None) -> dic
         out["phones"] = [e.get("phoneNumber") for e in elements if isinstance(e, dict)]
     # Optional inclusions — cards never allowed
     allowed_includes = {"addresses", "orders"}
-    for field in (include or []):
+    for field in include or []:
         if field in allowed_includes and field in raw:
             out[field] = raw[field]
     return out
@@ -120,8 +152,13 @@ def shape_employee(raw: dict[str, Any]) -> dict[str, Any]:
 def shape_shift(raw: dict[str, Any]) -> dict[str, Any]:
     out = _pick(
         raw,
-        "id", "inTime", "outTime", "overrideInTime", "overrideOutTime",
-        "inTimestamp", "outTimestamp",
+        "id",
+        "inTime",
+        "outTime",
+        "overrideInTime",
+        "overrideOutTime",
+        "inTimestamp",
+        "outTimestamp",
     )
     if "employee" in raw and isinstance(raw["employee"], dict):
         out["employee_id"] = raw["employee"].get("id")

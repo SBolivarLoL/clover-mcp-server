@@ -28,9 +28,7 @@ def raise_for_status(response: httpx.Response, *, context: str = "") -> None:
         # Clover wraps errors as {"message": "..."} or {"error": {"message": "..."}}
         if isinstance(body, dict):
             clover_msg = (
-                body.get("message")
-                or (body.get("error") or {}).get("message")
-                or response.text
+                body.get("message") or (body.get("error") or {}).get("message") or response.text
             )
         else:
             clover_msg = response.text

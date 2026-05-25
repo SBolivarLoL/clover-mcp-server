@@ -12,14 +12,15 @@ Wraps httpx.AsyncClient with:
 from __future__ import annotations
 
 import asyncio
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 
 from clover_mcp import __version__
 from clover_mcp.auth import TokenStore, refresh_access_token
 from clover_mcp.config import Config
-from clover_mcp.errors import CloverAPIError, raise_for_status
+from clover_mcp.errors import raise_for_status
 
 _USER_AGENT = f"clover-mcp/{__version__} (+https://github.com/SBolivarLoL/clover-mcp-server)"
 
@@ -60,14 +61,10 @@ class CloverClient:
     def _auth_headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._access_token}"}
 
-    async def _refresh_and_retry(
-        self, method: str, url: str, **kwargs: Any
-    ) -> httpx.Response:
+    async def _refresh_and_retry(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         """Refresh the OAuth access token and retry the request once."""
         self._access_token = await refresh_access_token(self._config)
-        return await self._http.request(
-            method, url, headers=self._auth_headers(), **kwargs
-        )
+        return await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
 
     async def _send(
         self,
@@ -137,7 +134,7 @@ class CloverClient:
         await self._http.aclose()
 
     # Context manager support
-    async def __aenter__(self) -> "CloverClient":
+    async def __aenter__(self) -> CloverClient:
         return self
 
     async def __aexit__(self, *_: Any) -> None:
@@ -150,9 +147,7 @@ class CloverClient:
     async def get_merchant_info(self) -> dict[str, Any]:
         """Fetch and cache merchant info (currency, timezone, country)."""
         if self._merchant_cache is None:
-            self._merchant_cache = await self.get(
-                f"/v3/merchants/{self._config.merchant_id}"
-            )
+            self._merchant_cache = await self.get(f"/v3/merchants/{self._config.merchant_id}")
         return self._merchant_cache
 
     async def merchant_currency(self) -> str:

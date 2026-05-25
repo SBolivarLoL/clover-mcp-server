@@ -7,8 +7,8 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from clover_mcp.config import load_config
 from clover_mcp.client import CloverClient
+from clover_mcp.config import load_config
 from clover_mcp.errors import CloverAPIError
 from clover_mcp.tools.merchant import get_merchant_info as _get_merchant_info
 
@@ -37,6 +37,7 @@ def _get_client() -> CloverClient:
 
 # ── Startup permission self-check ─────────────────────────────────────────────
 
+
 async def _check_permissions() -> None:
     """Probe one read per required permission category and report failures."""
     client = _get_client()
@@ -54,8 +55,7 @@ async def _check_permissions() -> None:
                 missing.append(f"  • {perm}: {exc.message}")
             elif exc.status_code == 401:
                 print(
-                    "ERROR: Invalid or expired access token. "
-                    "Check CLOVER_ACCESS_TOKEN.",
+                    "ERROR: Invalid or expired access token. Check CLOVER_ACCESS_TOKEN.",
                     file=sys.stderr,
                 )
                 sys.exit(1)
@@ -86,6 +86,7 @@ async def get_merchant_info() -> dict[str, Any]:
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
+
 
 def run() -> None:
     mcp.run()

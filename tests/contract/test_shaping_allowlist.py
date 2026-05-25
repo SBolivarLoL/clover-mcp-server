@@ -8,10 +8,10 @@ If a shaper accidentally passes through PII, these tests catch it.
 from clover_mcp.shaping import (
     shape_customer,
     shape_employee,
-    shape_payment,
-    shape_order,
     shape_item,
     shape_merchant,
+    shape_order,
+    shape_payment,
 )
 
 BANNED_KEYS = {"pin", "unhashedPin", "cards", "cardTransaction", "href", "token", "pan"}

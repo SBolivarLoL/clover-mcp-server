@@ -1,7 +1,6 @@
 """Contract tests: money formatting and timestamp conversion."""
 
-import pytest
-from clover_mcp.formatting import format_money, ms_to_utc_iso, ms_to_local_iso
+from clover_mcp.formatting import format_money, ms_to_local_iso, ms_to_utc_iso
 
 
 def test_format_money_usd() -> None:
@@ -28,7 +27,7 @@ def test_format_money_zero() -> None:
 
 def test_format_money_large() -> None:
     result = format_money(100_000_00, "USD")  # $100,000.00
-    assert "$100,000.00" == result
+    assert result == "$100,000.00"
 
 
 def test_ms_to_utc_iso() -> None:

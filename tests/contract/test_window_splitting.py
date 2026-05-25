@@ -1,9 +1,10 @@
 """Contract tests: 90-day window splitting and ms timestamp conversion."""
 
 from datetime import date
+
 import pytest
 
-from clover_mcp.windowing import split_window, date_to_ms
+from clover_mcp.windowing import date_to_ms, split_window
 
 
 def test_single_chunk_within_90_days() -> None:
@@ -35,12 +36,14 @@ def test_full_year_covers_all_days() -> None:
         while d <= e:
             covered.add(d)
             from datetime import timedelta
+
             d += timedelta(days=1)
     expected = set()
     d = start
     while d <= end:
         expected.add(d)
         from datetime import timedelta
+
         d += timedelta(days=1)
     assert covered == expected
 

@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import pytest
 import respx
-import httpx
 
-from clover_mcp.config import Config
 from clover_mcp.client import CloverClient
-
+from clover_mcp.config import Config
 
 TEST_MERCHANT_ID = "TESTMERCHANT1"
 TEST_TOKEN = "test_access_token"
@@ -18,6 +16,7 @@ TEST_BASE = "https://apisandbox.dev.clover.com"
 @pytest.fixture
 def test_config() -> Config:
     from pathlib import Path
+
     return Config(
         merchant_id=TEST_MERCHANT_ID,
         access_token=TEST_TOKEN,

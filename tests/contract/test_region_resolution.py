@@ -6,6 +6,7 @@ before any tool code is touched.
 """
 
 import pytest
+
 from clover_mcp.config import resolve_base_url
 
 
@@ -15,9 +16,9 @@ from clover_mcp.config import resolve_base_url
         ("na", False, "https://api.clover.com"),
         ("eu", False, "https://api.eu.clover.com"),
         ("la", False, "https://api.la.clover.com"),
-        ("na", True,  "https://apisandbox.dev.clover.com"),
-        ("eu", True,  "https://apisandbox.dev.clover.com"),
-        ("la", True,  "https://apisandbox.dev.clover.com"),
+        ("na", True, "https://apisandbox.dev.clover.com"),
+        ("eu", True, "https://apisandbox.dev.clover.com"),
+        ("la", True, "https://apisandbox.dev.clover.com"),
     ],
 )
 def test_resolve_base_url(region: str, sandbox: bool, expected: str) -> None:

@@ -6,8 +6,7 @@ Timezone: Clover timestamps are Unix ms UTC; merchant's local TZ is a separate f
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
+from datetime import UTC, datetime
 
 _CURRENCY_SYMBOLS: dict[str, str] = {
     "USD": "$",
@@ -32,7 +31,7 @@ def format_money(cents: int, currency: str) -> str:
 
 def ms_to_utc_iso(ts_ms: int) -> str:
     """Convert a Clover Unix millisecond timestamp to an ISO-8601 UTC string."""
-    dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+    dt = datetime.fromtimestamp(ts_ms / 1000, tz=UTC)
     return dt.isoformat()
 
 
@@ -43,7 +42,7 @@ def ms_to_local_iso(ts_ms: int, tz_name: str) -> str:
     """
     import zoneinfo
 
-    dt_utc = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+    dt_utc = datetime.fromtimestamp(ts_ms / 1000, tz=UTC)
     try:
         tz = zoneinfo.ZoneInfo(tz_name)
         return dt_utc.astimezone(tz).isoformat()

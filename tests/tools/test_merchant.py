@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
 import respx
-import httpx
 
 from clover_mcp.client import CloverClient
-from clover_mcp.tools.merchant import get_merchant_info
 from clover_mcp.errors import CloverAPIError
-from tests.conftest import TEST_MERCHANT_ID, TEST_BASE
-
+from clover_mcp.tools.merchant import get_merchant_info
+from tests.conftest import TEST_MERCHANT_ID
 
 MERCHANT_PAYLOAD = {
     "id": TEST_MERCHANT_ID,
@@ -25,9 +24,7 @@ MERCHANT_PAYLOAD = {
 
 
 @pytest.mark.asyncio
-async def test_get_merchant_info_happy_path(
-    client: CloverClient, mock_http: respx.Router
-) -> None:
+async def test_get_merchant_info_happy_path(client: CloverClient, mock_http: respx.Router) -> None:
     path = f"/v3/merchants/{TEST_MERCHANT_ID}"
     mock_http.get(path).mock(return_value=httpx.Response(200, json=MERCHANT_PAYLOAD))
 
@@ -43,13 +40,9 @@ async def test_get_merchant_info_happy_path(
 
 
 @pytest.mark.asyncio
-async def test_get_merchant_info_401(
-    client: CloverClient, mock_http: respx.Router
-) -> None:
+async def test_get_merchant_info_401(client: CloverClient, mock_http: respx.Router) -> None:
     path = f"/v3/merchants/{TEST_MERCHANT_ID}"
-    mock_http.get(path).mock(
-        return_value=httpx.Response(401, json={"message": "Unauthorized"})
-    )
+    mock_http.get(path).mock(return_value=httpx.Response(401, json={"message": "Unauthorized"}))
 
     with pytest.raises(CloverAPIError) as exc_info:
         await get_merchant_info(client)
@@ -59,9 +52,7 @@ async def test_get_merchant_info_401(
 
 
 @pytest.mark.asyncio
-async def test_get_merchant_info_403(
-    client: CloverClient, mock_http: respx.Router
-) -> None:
+async def test_get_merchant_info_403(client: CloverClient, mock_http: respx.Router) -> None:
     path = f"/v3/merchants/{TEST_MERCHANT_ID}"
     mock_http.get(path).mock(
         return_value=httpx.Response(403, json={"message": "Merchant not authorized"})

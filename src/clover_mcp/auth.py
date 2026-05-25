@@ -8,6 +8,7 @@ owned by the operator (0600 permissions).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import tempfile
@@ -50,14 +51,12 @@ class TokenStore:
             os.chmod(tmp, 0o600)
             os.replace(tmp, self._path)
         except Exception:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
 
 
-async def refresh_access_token(config: "Config") -> str:
+async def refresh_access_token(config: Config) -> str:
     """Exchange a refresh token for a new access token via Clover's OAuth endpoint.
 
     Thread/task-safe: only one refresh runs at a time via an asyncio.Lock.
@@ -87,8 +86,8 @@ async def refresh_access_token(config: "Config") -> str:
             resp.raise_for_status()
             body = resp.json()
 
-        new_access = body["access_token"]
-        new_refresh = body.get("refresh_token", config.refresh_token)
+        new_access = str(body["access_token"])
+        new_refresh = str(body.get("refresh_token", config.refresh_token))
 
         store.save({"access_token": new_access, "refresh_token": new_refresh})
         return new_access
