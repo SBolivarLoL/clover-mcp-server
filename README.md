@@ -1,8 +1,8 @@
 # clover-mcp
 
-MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, etc.) read and safe-write access to a Clover merchant's sales, inventory, orders, customers, and employee shifts.
+MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, etc.) read and safe-write access to a Clover merchant's sales, inventory, orders, and customers.
 
-> **Status:** v0 — skeleton in development. See [docs/endpoints.md](docs/endpoints.md) for the M1 endpoint audit gate.
+> **Status:** v1 candidate — 14 tools, both auth modes, 148 tests. Single-merchant, local (stdio). See [docs/endpoints.md](docs/endpoints.md) for the sandbox-verified endpoint contracts.
 
 ## What it can do
 
@@ -10,10 +10,25 @@ MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, 
 - Inventory lookups and low-stock alerts
 - Order history and open-order inspection
 - Customer search and creation
-- Employee shift tracking
 - Safe writes: update item prices, set stock quantities, create customers
 
-**What it cannot do (by design):** process refunds, capture payments, void charges, delete records. Those stay in the Clover dashboard.
+**What it cannot do (by design):** process refunds, capture payments, void charges, delete records. Those stay in the Clover dashboard. Employee/shift reporting and a multi-merchant hosted mode are planned (v1.1 / v2).
+
+## Tools
+
+| Tool | Kind | Notes |
+|---|---|---|
+| `get_merchant_info` | read | name, currency, timezone, country |
+| `get_sales_summary` | read | aggregated window (see [Sales summary semantics](#sales-summary-semantics)) |
+| `list_payments` | read | SUCCESS payments in a window |
+| `list_orders` / `get_order` / `list_open_orders` | read | order history + detail |
+| `list_items` / `get_item` / `list_low_stock_items` | read | inventory + stock |
+| `search_customers` / `get_customer` | read | cards never returned |
+| `create_customer` | write | additive; idempotency dup-check + `dry_run` |
+| `set_item_price_cents` | write | optimistic-lock pre-check, bounds, `dry_run` |
+| `set_item_stock_quantity` | write | absolute (not delta), pre-check, `dry_run` |
+
+Every tool carries MCP behaviour annotations (`readOnlyHint` / `destructiveHint` / `idempotentHint`) so clients can parallelize reads and prompt before writes.
 
 ## Install
 
@@ -55,7 +70,9 @@ Optional:
 ### Auth modes
 
 - **`token`** — paste a static access token. Works for sandbox and single-merchant production use. If the token expires, regenerate it in the Clover Developer Dashboard.
-- **`oauth_refresh`** — supply a refresh token + OAuth client credentials; the server auto-refreshes on expiry and persists the new token pair to `CLOVER_TOKEN_STORE` (default: `~/.config/clover-mcp/tokens.json`, mode 0600).
+- **`oauth_refresh`** — supply a refresh token + OAuth client credentials; the server auto-refreshes on expiry and persists the new token pair to `CLOVER_TOKEN_STORE` (default: `~/.config/clover-mcp/tokens.json`, mode 0600). Clover refresh tokens are single-use, so the rotated pair is written back after each refresh.
+
+> **Use a least-privilege token.** Grant only the permission scopes the tools you actually use require (see the table below). A read-only deployment needs no `*_W` scopes at all. Don't reuse a production token in sandbox or vice versa.
 
 ## Claude Desktop setup
 
@@ -109,9 +126,20 @@ Your token must have the following Clover permission scopes:
 | `INVENTORY_W` | `set_item_price_cents`, `set_item_stock_quantity` |
 | `CUSTOMERS_R` | `search_customers`, `get_customer` |
 | `CUSTOMERS_W` | `create_customer` |
-| `EMPLOYEES_R` | `list_employees`, `list_shifts`, `list_active_shifts` |
 
-Permission changes on a Clover app require the merchant to reinstall the app.
+Read scopes (`*_R`) are probed at startup; the server reports any missing ones and exits. Write scopes (`*_W`) are **not** probed (a probe would mutate data) — a missing write scope surfaces as a 403 the first time you call that tool. Permission changes on a Clover app require the merchant to reinstall the app.
+
+## Sales summary semantics
+
+`get_sales_summary` makes the accounting explicit so the LLM can explain it:
+
+- **Gross** = sum of `result=SUCCESS` payment amounts. `FAIL`/`AUTH`/uncaptured `PRE_AUTH` are excluded.
+- **Voids and refunds are reported separately** (`void_count`, `refund_count`, `refund_amount`) — never silently netted into `payment_count`.
+- **Tips and taxes** are broken out as their own line items.
+- **Service charges** are summed from orders (Clover does not expose them on payments) and reported as `service_charges_collected` — requires `ORDERS_R`.
+- **Offline payments** are included; a `note` flags the window when any are present.
+- **Currency** comes from the merchant record, never defaulted.
+- Windows longer than 90 days are split and concatenated transparently.
 
 ## Development
 
