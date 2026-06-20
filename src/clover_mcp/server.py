@@ -6,6 +6,7 @@ import sys
 from typing import Any
 
 from fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from clover_mcp.client import CloverClient
 from clover_mcp.config import load_config
@@ -89,10 +90,21 @@ async def _check_permissions() -> None:
         sys.exit(1)
 
 
+# ── Tool behaviour annotations ────────────────────────────────────────────────
+# Clients use these structured hints (not the prose docstrings) to gate
+# confirmation prompts and to parallelize read-only tools. Every tool talks to
+# the Clover REST API, so openWorldHint=True throughout.
+_READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
+_WRITE_ADD = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True)
+_WRITE_SET = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=True
+)
+
+
 # ── Tool registrations ────────────────────────────────────────────────────────
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 async def get_merchant_info() -> dict[str, Any]:
     """Return key information about this Clover merchant.
 
@@ -102,7 +114,7 @@ async def get_merchant_info() -> dict[str, Any]:
     return await _get_merchant_info(_get_client())
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 async def get_sales_summary(
     date_from: str | None = None,
     date_to: str | None = None,
@@ -119,7 +131,7 @@ async def get_sales_summary(
     return await _get_sales_summary(_get_client(), date_from=date_from, date_to=date_to)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 async def list_payments(
     date_from: str | None = None,
     date_to: str | None = None,
@@ -133,7 +145,7 @@ async def list_payments(
     return await _list_payments(_get_client(), date_from=date_from, date_to=date_to, limit=limit)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 async def list_orders(
     date_from: str | None = None,
     date_to: str | None = None,
@@ -150,7 +162,7 @@ async def list_orders(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 async def get_order(order_id: str) -> dict[str, Any]:
     """Fetch a single order by ID, including line items and payment summary.
 
@@ -160,7 +172,7 @@ async def get_order(order_id: str) -> dict[str, Any]:
     return await _get_order(_get_client(), order_id=order_id)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 async def list_open_orders() -> list[dict[str, Any]]:
     """Return all currently open orders for this merchant (up to 200).
 
@@ -170,7 +182,7 @@ async def list_open_orders() -> list[dict[str, Any]]:
     return await _list_open_orders(_get_client())
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 async def list_items(
     query: str | None = None,
     category_id: str | None = None,
@@ -186,13 +198,13 @@ async def list_items(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 async def get_item(item_id: str) -> dict[str, Any]:
     """Return a single inventory item by ID, including stock quantity. Requires INVENTORY_R."""
     return await _get_item(_get_client(), item_id)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 async def list_low_stock_items(threshold: int = 5) -> dict[str, Any]:
     """Return all items whose stock quantity is at or below threshold.
 
@@ -201,7 +213,7 @@ async def list_low_stock_items(threshold: int = 5) -> dict[str, Any]:
     return await _list_low_stock_items(_get_client(), threshold=threshold)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 async def search_customers(
     query: str | None = None,
     phone: str | None = None,
@@ -217,7 +229,7 @@ async def search_customers(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 async def get_customer(customer_id: str, include: list[str] | None = None) -> dict[str, Any]:
     """Return a single customer by ID.
 
@@ -234,7 +246,7 @@ async def get_customer(customer_id: str, include: list[str] | None = None) -> di
 # MCP surfaces prompt for confirmation, and supports dry_run to preview payloads.
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE_ADD)
 async def create_customer(
     first_name: str,
     last_name: str,
@@ -265,7 +277,7 @@ async def create_customer(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE_SET)
 async def set_item_price_cents(
     item_id: str,
     new_price_cents: int,
@@ -285,7 +297,7 @@ async def set_item_price_cents(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE_SET)
 async def set_item_stock_quantity(
     item_id: str,
     new_quantity: int,
