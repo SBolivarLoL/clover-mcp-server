@@ -1,8 +1,10 @@
-"""FastMCP server: tool registration, startup permission checks, run()."""
+"""FastMCP server: tool registration and the startup permission self-check."""
 
 from __future__ import annotations
 
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastmcp import FastMCP
@@ -26,15 +28,24 @@ from clover_mcp.tools.orders import list_orders as _list_orders
 from clover_mcp.tools.reporting import get_sales_summary as _get_sales_summary
 from clover_mcp.tools.reporting import list_payments as _list_payments
 
+
+@asynccontextmanager
+async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
+    """Run the startup permission self-check before the server serves tools."""
+    await _check_permissions()
+    yield
+
+
 mcp: FastMCP = FastMCP(
     "Clover POS",
     instructions=(
         "Tools for querying and managing a Clover POS merchant: "
-        "sales reporting, inventory, orders, customers, and employee shifts. "
+        "sales reporting, inventory, orders, and customers. "
         "IMPORTANT: This server does NOT support payment capture, refunds, "
         "voids, or charge creation — those actions must be performed in the "
         "Clover dashboard directly."
     ),
+    lifespan=_lifespan,
 )
 
 # Module-level client — initialised lazily on first tool call
@@ -77,6 +88,13 @@ async def _check_permissions() -> None:
                     file=sys.stderr,
                 )
                 sys.exit(1)
+            else:
+                # Transient (5xx / rate limit): don't block startup — tools surface it later.
+                print(
+                    f"WARNING: permission probe for {perm} failed: {exc.message}", file=sys.stderr
+                )
+        except Exception as exc:  # noqa: BLE001 — network error etc.; warn, don't crash startup
+            print(f"WARNING: permission probe for {perm} skipped: {exc}", file=sys.stderr)
 
     if missing:
         print("ERROR: Missing required Clover permissions:", file=sys.stderr)
@@ -239,6 +257,10 @@ async def get_customer(customer_id: str, include: list[str] | None = None) -> di
     return await _get_customer(_get_client(), customer_id, include=include)
 
 
+# NOTE: the process entry point is clover_mcp.__main__:main (calls mcp.run()).
+# Startup permission validation runs via the FastMCP lifespan above.
+
+
 # ── Write tools (M3) ──────────────────────────────────────────────────────────
 # Write permissions (CUSTOMERS_W, INVENTORY_W) are NOT probed at startup — a
 # write probe would mutate data. Missing write scopes surface as a 403 at call
@@ -314,10 +336,3 @@ async def set_item_stock_quantity(
     return await _set_item_stock_quantity(
         _get_client(), item_id, new_quantity, expected_current_quantity, dry_run
     )
-
-
-# ── Entry point ───────────────────────────────────────────────────────────────
-
-
-def run() -> None:
-    mcp.run()
