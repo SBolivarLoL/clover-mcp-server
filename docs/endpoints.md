@@ -74,6 +74,14 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 
 ---
 
+## OAuth (auth_mode=oauth_refresh)
+
+| Endpoint | Method | Status | Notes |
+|---|---|---|---|
+| `{base_url}/oauth/v2/refresh` | POST | ✅ | Same host as REST API (sandbox/na/eu/la follow base_url). Body JSON `{"client_id", "refresh_token"}` — **no client_secret**. Returns `{access_token, access_token_expiration, refresh_token, refresh_token_expiration}` (Unix ts). ⚠️ refresh_token is **single-use** — rotated pair must be persisted (token store handles this). Verified against docs.clover.com/dev/docs/refresh-access-tokens. |
+
+---
+
 ## Response shape notes (to fill in during audit)
 
 For each endpoint above, record:
