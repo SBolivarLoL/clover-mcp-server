@@ -73,6 +73,14 @@ def _payments_path() -> str:
     return f"/v3/merchants/{TEST_MERCHANT_ID}/payments"
 
 
+def _orders_path() -> str:
+    return f"/v3/merchants/{TEST_MERCHANT_ID}/orders"
+
+
+# An order carrying a service charge (lives on the order, not the payment)
+ORDER_WITH_SC = {"id": "ORD1", "serviceCharge": {"name": "Gratuity", "amount": 200}}
+
+
 # ── get_sales_summary tests ───────────────────────────────────────────────────
 
 
@@ -83,11 +91,13 @@ async def test_get_sales_summary_empty_window(
     """Empty payments list returns zeros without error."""
     mock_http.get(_merchant_path()).mock(return_value=httpx.Response(200, json=MERCHANT_PAYLOAD))
     mock_http.get(_payments_path()).mock(return_value=httpx.Response(200, json={"elements": []}))
+    mock_http.get(_orders_path()).mock(return_value=httpx.Response(200, json={"elements": []}))
 
     result = await get_sales_summary(client, date_from="2024-01-01", date_to="2024-01-01")
 
     assert result["payment_count"] == 0
     assert result["gross_sales"]["amount"] == 0
+    assert result["service_charges_collected"]["amount"] == 0
     assert result["currency"] == "USD"
     assert result["window"]["from"] == "2024-01-01"
     assert result["window"]["to"] == "2024-01-01"
@@ -103,6 +113,7 @@ async def test_get_sales_summary_with_payments(
     mock_http.get(_payments_path()).mock(
         return_value=httpx.Response(200, json={"elements": [PAYMENT_1, PAYMENT_2]})
     )
+    mock_http.get(_orders_path()).mock(return_value=httpx.Response(200, json={"elements": []}))
 
     result = await get_sales_summary(client, date_from="2024-01-01", date_to="2024-01-01")
 
@@ -133,6 +144,7 @@ async def test_get_sales_summary_offline_flag(
     mock_http.get(_payments_path()).mock(
         return_value=httpx.Response(200, json={"elements": [PAYMENT_OFFLINE]})
     )
+    mock_http.get(_orders_path()).mock(return_value=httpx.Response(200, json={"elements": []}))
 
     result = await get_sales_summary(client, date_from="2024-01-01", date_to="2024-01-01")
 
@@ -148,6 +160,7 @@ async def test_get_sales_summary_defaults_to_today(
     """No date args → window.from and window.to are the same date (today)."""
     mock_http.get(_merchant_path()).mock(return_value=httpx.Response(200, json=MERCHANT_PAYLOAD))
     mock_http.get(_payments_path()).mock(return_value=httpx.Response(200, json={"elements": []}))
+    mock_http.get(_orders_path()).mock(return_value=httpx.Response(200, json={"elements": []}))
 
     result = await get_sales_summary(client)
 
@@ -196,6 +209,7 @@ async def test_get_sales_summary_no_card_data_leaked(
     mock_http.get(_payments_path()).mock(
         return_value=httpx.Response(200, json={"elements": [PAYMENT_1]})
     )
+    mock_http.get(_orders_path()).mock(return_value=httpx.Response(200, json={"elements": []}))
 
     result = await get_sales_summary(client, date_from="2024-01-01", date_to="2024-01-01")
 
@@ -203,6 +217,30 @@ async def test_get_sales_summary_no_card_data_leaked(
     # so no card data can leak. Sanity-check the top-level keys.
     assert "cardTransaction" not in result
     assert "by_tender" in result
+
+
+@pytest.mark.asyncio
+async def test_get_sales_summary_service_charges_from_orders(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    """service_charges_collected is summed from orders, not payments."""
+    mock_http.get(_merchant_path()).mock(return_value=httpx.Response(200, json=MERCHANT_PAYLOAD))
+    mock_http.get(_payments_path()).mock(
+        return_value=httpx.Response(200, json={"elements": [PAYMENT_1]})
+    )
+    mock_http.get(_orders_path()).mock(
+        return_value=httpx.Response(
+            200,
+            json={"elements": [ORDER_WITH_SC, {"id": "ORD2"}]},  # second order has no SC
+        )
+    )
+
+    result = await get_sales_summary(client, date_from="2024-01-01", date_to="2024-01-01")
+
+    assert result["service_charges_collected"]["amount"] == 200
+    assert result["service_charges_collected"]["formatted"] == "$2.00"
+    # service charges are reported separately, not folded into gross
+    assert result["gross_sales"]["amount"] == 1050
 
 
 # ── list_payments tests ───────────────────────────────────────────────────────

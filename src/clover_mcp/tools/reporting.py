@@ -50,10 +50,13 @@ async def get_sales_summary(
     - Only result=SUCCESS payments are counted in payment_count and gross_sales.
     - Voids and refunds are tallied separately (refund_count, void_count,
       refund_amount) — they are NOT silently netted into payment_count.
-    - Tips, taxes, and service charges are broken out as their own line items.
+    - Tips and taxes are broken out as their own line items.
+    - Service charges are summed from orders (not payments, where Clover does not
+      expose them) and reported as service_charges_collected. Requires ORDERS_R.
     - Offline payments are included; a warning flag is set if any are present.
     - Currency is fetched from the merchant record — never defaulted to USD.
 
+    Requires PAYMENTS_R and ORDERS_R.
     This tool does NOT support payment capture, refund, or void actions.
     """
     today = _today_utc()
@@ -69,6 +72,7 @@ async def get_sales_summary(
     gross_cents = 0
     tip_cents = 0
     tax_cents = 0
+    service_charge_cents = 0
     payment_count = 0
     refund_count = 0
     void_count = 0
@@ -120,10 +124,9 @@ async def get_sales_summary(
         async for _ in client.iterate("/payments", limit=100, **void_params):
             void_count += 1
 
-    # Collect refund payments (result=VOID covers full voids; partial refunds appear
-    # as separate payment records with negative amounts — check result=SUCCESS too)
-    # Clover surfaces refunds as payment records where amount may be negative.
-    # We count negative-amount SUCCESS payments as refunds.
+    # ponytail: refunds via the amount<0 SUCCESS heuristic — unverified against a
+    # sandbox with no transaction data. Upgrade path if it proves wrong in prod:
+    # query the dedicated GET /v3/merchants/{mId}/refunds endpoint instead.
     for chunk_start, chunk_end in split_window(d_from, d_to):
         ts_from = date_to_ms(chunk_start, end_of_day=False)
         ts_to = date_to_ms(chunk_end, end_of_day=True)
@@ -140,6 +143,25 @@ async def get_sales_summary(
         async for raw in client.iterate("/payments", limit=100, **refund_params):
             refund_count += 1
             refund_cents += raw.get("amount", 0)  # negative value
+
+    # Service charges live on the order, not the payment — Clover does not expose
+    # them on /payments. Sum serviceCharge.amount across orders in the window.
+    for chunk_start, chunk_end in split_window(d_from, d_to):
+        ts_from = date_to_ms(chunk_start, end_of_day=False)
+        ts_to = date_to_ms(chunk_end, end_of_day=True)
+
+        order_params: dict[str, Any] = {
+            "filter": [
+                f"createdTime>={ts_from}",
+                f"createdTime<={ts_to}",
+            ],
+            "expand": "serviceCharge",
+        }
+
+        async for raw in client.iterate("/orders", limit=100, **order_params):
+            sc = raw.get("serviceCharge")
+            if isinstance(sc, dict):
+                service_charge_cents += sc.get("amount") or 0
 
     # net_sales: gross minus absolute refund amount
     net_cents = gross_cents + refund_cents  # refund_cents is negative
@@ -159,6 +181,7 @@ async def get_sales_summary(
         "net_sales": _money(net_cents, currency),
         "tax_collected": _money(tax_cents, currency),
         "tips_collected": _money(tip_cents, currency),
+        "service_charges_collected": _money(service_charge_cents, currency),
         "refund_amount": _money(abs(refund_cents), currency),
         "payment_count": payment_count,
         "refund_count": refund_count,
