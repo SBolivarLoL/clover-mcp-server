@@ -63,7 +63,7 @@ class CloverClient:
 
     async def _refresh_and_retry(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         """Refresh the OAuth access token and retry the request once."""
-        self._access_token = await refresh_access_token(self._config)
+        self._access_token = await refresh_access_token(self._config, self._access_token)
         return await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
 
     async def _send(
