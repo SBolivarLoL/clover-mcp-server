@@ -1,4 +1,7 @@
-"""Tools: list_items, get_item, list_low_stock_items — Inventory (INVENTORY_R)."""
+"""Tools: list_items, get_item, list_low_stock_items — Inventory (INVENTORY_R).
+
+Write tools: set_item_price_cents, set_item_stock_quantity — require INVENTORY_W.
+"""
 
 from __future__ import annotations
 
@@ -80,3 +83,156 @@ async def list_low_stock_items(
         "items": low,
         "count": len(low),
     }
+
+
+# ── Write tools ───────────────────────────────────────────────────────────────
+
+_PRICE_MAX = 100_000_000  # $1 000 000.00 in cents
+_STOCK_MAX = 1_000_000
+
+
+async def set_item_price_cents(
+    client: CloverClient,
+    item_id: str,
+    new_price_cents: int,
+    expected_current_price_cents: int,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Update an item's price (in cents).
+
+    Safety mechanics
+    ----------------
+    * **Optimistic-lock pre-check**: the current price is fetched before writing.
+      If it does not equal *expected_current_price_cents* the call is refused with
+      a diff so the caller can reconcile stale context before retrying.
+    * **Bounds**: *new_price_cents* must satisfy ``0 <= new_price_cents <= 100_000_000``
+      (i.e. $0.00 to $1 000 000.00). Requests outside this range are refused before
+      any network call.
+    * **dry_run=True**: returns the would-be PUT body without sending it.  No
+      network call is made beyond the pre-check GET.
+    * PUT is never auto-retried on error.
+
+    Note: The Clover PUT /items/{id} endpoint requires the item ``name`` field in
+    the request body.  This function fetches it from the pre-check GET automatically.
+
+    Requires INVENTORY_R + INVENTORY_W permissions.
+    """
+    # Bounds check — refuse before any network call
+    if not (0 <= new_price_cents <= _PRICE_MAX):
+        return {
+            "ok": False,
+            "reason": "bounds_violation",
+            "message": (
+                f"new_price_cents {new_price_cents} is out of bounds (must be 0 – {_PRICE_MAX})."
+            ),
+        }
+
+    # Pre-check GET — also retrieves name required by the PUT body
+    current_item = await get_item(client, item_id)
+    current_price: int = current_item.get("price", -1)
+
+    if current_price != expected_current_price_cents:
+        return {
+            "ok": False,
+            "reason": "optimistic_lock_mismatch",
+            "message": (
+                f"Price mismatch: expected {expected_current_price_cents} cents "
+                f"but current value is {current_price} cents. "
+                "Refresh item data before retrying."
+            ),
+            "expected": expected_current_price_cents,
+            "actual": current_price,
+        }
+
+    # Build PUT body — Clover requires name alongside price
+    item_name: str = current_item.get("name", "")
+    put_body: dict[str, Any] = {"name": item_name, "price": new_price_cents}
+
+    if dry_run:
+        return {
+            "ok": True,
+            "dry_run": True,
+            "would_put_path": f"/items/{item_id}",
+            "would_put_body": put_body,
+        }
+
+    raw = await client.put(f"/items/{item_id}", json=put_body)
+    # Clover may return the full updated item or an empty body on success
+    shaped = shape_item(raw) if raw else current_item
+    return {"ok": True, "item": shaped}
+
+
+async def set_item_stock_quantity(
+    client: CloverClient,
+    item_id: str,
+    new_quantity: int,
+    expected_current_quantity: int,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Set an item's stock quantity to an absolute value.
+
+    **This sets stock to the absolute value provided — it is NOT a delta.**
+    For example, passing ``new_quantity=10`` always results in a stock of 10,
+    regardless of the previous value.
+
+    Safety mechanics
+    ----------------
+    * **Optimistic-lock pre-check**: the current stock quantity is fetched from
+      ``GET /item_stocks/{itemId}`` before writing.  If it does not equal
+      *expected_current_quantity* the call is refused with a diff so the caller
+      can reconcile stale context before retrying.
+    * **Bounds**: *new_quantity* must satisfy ``0 <= new_quantity <= 1_000_000``.
+      Requests outside this range are refused before any network call.
+    * **dry_run=True**: returns the would-be PUT body without sending it.  Only
+      the pre-check GET is made.
+    * PUT is never auto-retried on error.
+
+    Requires INVENTORY_R + INVENTORY_W permissions.
+    """
+    # Bounds check — refuse before any network call
+    if not (0 <= new_quantity <= _STOCK_MAX):
+        return {
+            "ok": False,
+            "reason": "bounds_violation",
+            "message": (
+                f"new_quantity {new_quantity} is out of bounds (must be 0 – {_STOCK_MAX})."
+            ),
+        }
+
+    # Pre-check GET from item_stocks endpoint
+    stock_raw = await client.get(f"/item_stocks/{item_id}")
+    # Clover returns quantity as a float (e.g. 20.0); normalise to int for comparison
+    current_quantity: int = int(stock_raw.get("quantity", -1))
+
+    if current_quantity != expected_current_quantity:
+        return {
+            "ok": False,
+            "reason": "optimistic_lock_mismatch",
+            "message": (
+                f"Stock mismatch: expected {expected_current_quantity} units "
+                f"but current value is {current_quantity}. "
+                "Refresh item data before retrying."
+            ),
+            "expected": expected_current_quantity,
+            "actual": current_quantity,
+        }
+
+    put_body: dict[str, Any] = {"quantity": new_quantity}
+
+    if dry_run:
+        return {
+            "ok": True,
+            "dry_run": True,
+            "would_put_path": f"/item_stocks/{item_id}",
+            "would_put_body": put_body,
+        }
+
+    raw = await client.put(f"/item_stocks/{item_id}", json=put_body)
+    # Shape via the item endpoint so we return a consistent item representation
+    # The item_stocks response does not include full item fields, so we re-fetch
+    updated_item = await get_item(client, item_id)
+    # Overlay the new stock quantity in case expand=itemStock isn't immediately
+    # reflected (sandbox may lag); raw contains the authoritative new quantity
+    new_qty_from_response = int(raw.get("quantity", new_quantity))
+    updated_item["stock_quantity"] = new_qty_from_response
+    return {"ok": True, "item": updated_item}

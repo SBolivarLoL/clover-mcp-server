@@ -1,4 +1,5 @@
-"""Tests for inventory tools: list_items, get_item, list_low_stock_items."""
+"""Tests for inventory tools: list_items, get_item, list_low_stock_items,
+set_item_price_cents, set_item_stock_quantity."""
 
 from __future__ import annotations
 
@@ -8,10 +9,17 @@ import respx
 
 from clover_mcp.client import CloverClient
 from clover_mcp.errors import CloverAPIError
-from clover_mcp.tools.inventory import get_item, list_items, list_low_stock_items
+from clover_mcp.tools.inventory import (
+    get_item,
+    list_items,
+    list_low_stock_items,
+    set_item_price_cents,
+    set_item_stock_quantity,
+)
 from tests.conftest import TEST_MERCHANT_ID
 
 ITEMS_PATH = f"/v3/merchants/{TEST_MERCHANT_ID}/items"
+ITEM_STOCKS_PATH = f"/v3/merchants/{TEST_MERCHANT_ID}/item_stocks"
 
 ITEM_RAW = {
     "id": "ITEM1",
@@ -233,3 +241,283 @@ async def test_list_low_stock_items_429(client: CloverClient, mock_http: respx.R
     with pytest.raises(CloverAPIError) as exc_info:
         await list_low_stock_items(client)
     assert exc_info.value.status_code == 429
+
+
+# ── set_item_price_cents ──────────────────────────────────────────────────────
+
+# Fixture: raw item as returned by GET /items/{id}
+ITEM_RAW_PRICE = {
+    "id": "ITEM1",
+    "name": "Latte",
+    "price": 500,
+    "priceType": "FIXED",
+    "sku": "LAT001",
+    "available": True,
+    "hidden": False,
+}
+
+ITEM_RAW_PRICE_UPDATED = {**ITEM_RAW_PRICE, "price": 650}
+
+
+@pytest.mark.asyncio
+async def test_set_item_price_happy_path(client: CloverClient, mock_http: respx.Router) -> None:
+    # GET pre-check returns current price 500
+    mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(return_value=httpx.Response(200, json=ITEM_RAW_PRICE))
+    # PUT returns updated item
+    mock_http.put(f"{ITEMS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=ITEM_RAW_PRICE_UPDATED)
+    )
+    result = await set_item_price_cents(
+        client, "ITEM1", new_price_cents=650, expected_current_price_cents=500
+    )
+    assert result["ok"] is True
+    assert "item" in result
+    assert result["item"]["price"] == 650
+    assert result["item"]["id"] == "ITEM1"
+
+
+@pytest.mark.asyncio
+async def test_set_item_price_dry_run(client: CloverClient, mock_http: respx.Router) -> None:
+    # Only the GET pre-check fires; no PUT
+    mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(return_value=httpx.Response(200, json=ITEM_RAW_PRICE))
+    result = await set_item_price_cents(
+        client,
+        "ITEM1",
+        new_price_cents=650,
+        expected_current_price_cents=500,
+        dry_run=True,
+    )
+    assert result["ok"] is True
+    assert result["dry_run"] is True
+    assert result["would_put_body"] == {"name": "Latte", "price": 650}
+    assert "ITEM1" in result["would_put_path"]
+    # Verify no PUT was sent
+    assert not any(r.request.method == "PUT" for r in mock_http.calls)
+
+
+@pytest.mark.asyncio
+async def test_set_item_price_optimistic_lock_mismatch(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    # Current price is 500 but caller expects 400 → refuse
+    mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(return_value=httpx.Response(200, json=ITEM_RAW_PRICE))
+    result = await set_item_price_cents(
+        client, "ITEM1", new_price_cents=650, expected_current_price_cents=400
+    )
+    assert result["ok"] is False
+    assert result["reason"] == "optimistic_lock_mismatch"
+    assert result["expected"] == 400
+    assert result["actual"] == 500
+    assert "mismatch" in result["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_set_item_price_bounds_too_low(client: CloverClient, mock_http: respx.Router) -> None:
+    # Negative price refused before any network call
+    result = await set_item_price_cents(
+        client, "ITEM1", new_price_cents=-1, expected_current_price_cents=500
+    )
+    assert result["ok"] is False
+    assert result["reason"] == "bounds_violation"
+    assert not mock_http.calls  # zero network calls
+
+
+@pytest.mark.asyncio
+async def test_set_item_price_bounds_too_high(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    # Over $1M refused before any network call
+    result = await set_item_price_cents(
+        client, "ITEM1", new_price_cents=100_000_001, expected_current_price_cents=500
+    )
+    assert result["ok"] is False
+    assert result["reason"] == "bounds_violation"
+    assert not mock_http.calls
+
+
+@pytest.mark.asyncio
+async def test_set_item_price_bounds_at_max(client: CloverClient, mock_http: respx.Router) -> None:
+    # Exactly at $1M boundary should be accepted
+    mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(return_value=httpx.Response(200, json=ITEM_RAW_PRICE))
+    mock_http.put(f"{ITEMS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json={**ITEM_RAW_PRICE, "price": 100_000_000})
+    )
+    result = await set_item_price_cents(
+        client, "ITEM1", new_price_cents=100_000_000, expected_current_price_cents=500
+    )
+    assert result["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_set_item_price_api_error(client: CloverClient, mock_http: respx.Router) -> None:
+    # Pre-check GET returns 404
+    mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(404, json={"message": "invalid ID"})
+    )
+    with pytest.raises(CloverAPIError) as exc_info:
+        await set_item_price_cents(
+            client, "ITEM1", new_price_cents=650, expected_current_price_cents=500
+        )
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_set_item_price_put_error(client: CloverClient, mock_http: respx.Router) -> None:
+    # Pre-check succeeds but PUT returns 400
+    mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(return_value=httpx.Response(200, json=ITEM_RAW_PRICE))
+    mock_http.put(f"{ITEMS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(400, json={"message": "Invalid price value"})
+    )
+    with pytest.raises(CloverAPIError) as exc_info:
+        await set_item_price_cents(
+            client, "ITEM1", new_price_cents=650, expected_current_price_cents=500
+        )
+    assert exc_info.value.status_code == 400
+
+
+# ── set_item_stock_quantity ───────────────────────────────────────────────────
+
+STOCK_RAW = {"item": {"id": "ITEM1"}, "stockCount": 10, "quantity": 10.0}
+STOCK_RAW_UPDATED = {"item": {"id": "ITEM1"}, "stockCount": 25, "quantity": 25.0}
+
+# item_stocks PUT returns stock response; we then re-GET the item
+ITEM_RAW_WITH_STOCK = {**ITEM_RAW_PRICE, "itemStock": {"quantity": 25}}
+
+
+@pytest.mark.asyncio
+async def test_set_item_stock_happy_path(client: CloverClient, mock_http: respx.Router) -> None:
+    # GET /item_stocks/ITEM1 → current qty 10
+    mock_http.get(f"{ITEM_STOCKS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=STOCK_RAW)
+    )
+    # PUT /item_stocks/ITEM1 → updated qty 25
+    mock_http.put(f"{ITEM_STOCKS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=STOCK_RAW_UPDATED)
+    )
+    # GET /items/ITEM1 → re-fetch item (for shape_item)
+    mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=ITEM_RAW_WITH_STOCK)
+    )
+    result = await set_item_stock_quantity(
+        client, "ITEM1", new_quantity=25, expected_current_quantity=10
+    )
+    assert result["ok"] is True
+    assert result["item"]["id"] == "ITEM1"
+    assert result["item"]["stock_quantity"] == 25
+
+
+@pytest.mark.asyncio
+async def test_set_item_stock_dry_run(client: CloverClient, mock_http: respx.Router) -> None:
+    # Only GET /item_stocks fires; no PUT, no re-GET of item
+    mock_http.get(f"{ITEM_STOCKS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=STOCK_RAW)
+    )
+    result = await set_item_stock_quantity(
+        client,
+        "ITEM1",
+        new_quantity=25,
+        expected_current_quantity=10,
+        dry_run=True,
+    )
+    assert result["ok"] is True
+    assert result["dry_run"] is True
+    assert result["would_put_body"] == {"quantity": 25}
+    assert "ITEM1" in result["would_put_path"]
+    # No PUT and no item GET should have been sent
+    assert all(r.request.method == "GET" for r in mock_http.calls)
+
+
+@pytest.mark.asyncio
+async def test_set_item_stock_optimistic_lock_mismatch(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    # Current qty is 10 but caller expects 5 → refuse
+    mock_http.get(f"{ITEM_STOCKS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=STOCK_RAW)
+    )
+    result = await set_item_stock_quantity(
+        client, "ITEM1", new_quantity=25, expected_current_quantity=5
+    )
+    assert result["ok"] is False
+    assert result["reason"] == "optimistic_lock_mismatch"
+    assert result["expected"] == 5
+    assert result["actual"] == 10
+    assert "mismatch" in result["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_set_item_stock_bounds_negative(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    result = await set_item_stock_quantity(
+        client, "ITEM1", new_quantity=-1, expected_current_quantity=10
+    )
+    assert result["ok"] is False
+    assert result["reason"] == "bounds_violation"
+    assert not mock_http.calls
+
+
+@pytest.mark.asyncio
+async def test_set_item_stock_bounds_too_high(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    result = await set_item_stock_quantity(
+        client, "ITEM1", new_quantity=1_000_001, expected_current_quantity=10
+    )
+    assert result["ok"] is False
+    assert result["reason"] == "bounds_violation"
+    assert not mock_http.calls
+
+
+@pytest.mark.asyncio
+async def test_set_item_stock_bounds_zero_allowed(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    # Zero is a valid quantity (clearing stock)
+    mock_http.get(f"{ITEM_STOCKS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=STOCK_RAW)
+    )
+    mock_http.put(f"{ITEM_STOCKS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json={**STOCK_RAW, "stockCount": 0, "quantity": 0.0})
+    )
+    mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json={**ITEM_RAW_PRICE, "itemStock": {"quantity": 0}})
+    )
+    result = await set_item_stock_quantity(
+        client, "ITEM1", new_quantity=0, expected_current_quantity=10
+    )
+    assert result["ok"] is True
+    assert result["item"]["stock_quantity"] == 0
+
+
+@pytest.mark.asyncio
+async def test_set_item_stock_api_error_on_get(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    # GET /item_stocks returns 404
+    mock_http.get(f"{ITEM_STOCKS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(404, json={"message": "not found"})
+    )
+    with pytest.raises(CloverAPIError) as exc_info:
+        await set_item_stock_quantity(
+            client, "ITEM1", new_quantity=25, expected_current_quantity=10
+        )
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_set_item_stock_api_error_on_put(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    # Pre-check OK but PUT fails with 403
+    mock_http.get(f"{ITEM_STOCKS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=STOCK_RAW)
+    )
+    mock_http.put(f"{ITEM_STOCKS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(403, json={"message": "No permission"})
+    )
+    with pytest.raises(CloverAPIError) as exc_info:
+        await set_item_stock_quantity(
+            client, "ITEM1", new_quantity=25, expected_current_quantity=10
+        )
+    assert exc_info.value.status_code == 403
