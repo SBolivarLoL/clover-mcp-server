@@ -276,7 +276,8 @@ async def set_item_price_cents(
 
     Optimistic lock: refuses the write unless the item's current price equals
     expected_current_price_cents (prevents stale-context overwrites). Bounds:
-    0 <= new_price_cents <= 100_000_000. dry_run=True previews the PUT body.
+    0 <= new_price_cents <= 100_000_000. dry_run=True previews the PUT body
+    (still performs one read to fetch current price/name) and never writes.
     Requires INVENTORY_R and INVENTORY_W.
     """
     return await _set_item_price_cents(
@@ -294,7 +295,8 @@ async def set_item_stock_quantity(
     """Modifies merchant data. Set an item's stock to an ABSOLUTE quantity (not a delta).
 
     Optimistic lock: refuses unless current stock equals expected_current_quantity.
-    Bounds: 0 <= new_quantity <= 1_000_000. dry_run=True previews the PUT body.
+    Bounds: 0 <= new_quantity <= 1_000_000. dry_run=True previews the PUT body
+    (still performs one read to fetch current stock) and never writes.
     Requires INVENTORY_R and INVENTORY_W.
     """
     return await _set_item_stock_quantity(
