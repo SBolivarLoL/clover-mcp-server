@@ -10,11 +10,14 @@ from fastmcp import FastMCP
 from clover_mcp.client import CloverClient
 from clover_mcp.config import load_config
 from clover_mcp.errors import CloverAPIError
+from clover_mcp.tools.customers import create_customer as _create_customer
 from clover_mcp.tools.customers import get_customer as _get_customer
 from clover_mcp.tools.customers import search_customers as _search_customers
 from clover_mcp.tools.inventory import get_item as _get_item
 from clover_mcp.tools.inventory import list_items as _list_items
 from clover_mcp.tools.inventory import list_low_stock_items as _list_low_stock_items
+from clover_mcp.tools.inventory import set_item_price_cents as _set_item_price_cents
+from clover_mcp.tools.inventory import set_item_stock_quantity as _set_item_stock_quantity
 from clover_mcp.tools.merchant import get_merchant_info as _get_merchant_info
 from clover_mcp.tools.orders import get_order as _get_order
 from clover_mcp.tools.orders import list_open_orders as _list_open_orders
@@ -222,6 +225,81 @@ async def get_customer(customer_id: str, include: list[str] | None = None) -> di
     Cards are never returned. Requires CUSTOMERS_R.
     """
     return await _get_customer(_get_client(), customer_id, include=include)
+
+
+# ── Write tools (M3) ──────────────────────────────────────────────────────────
+# Write permissions (CUSTOMERS_W, INVENTORY_W) are NOT probed at startup — a
+# write probe would mutate data. Missing write scopes surface as a 403 at call
+# time. Every write tool description begins with "Modifies merchant data." so
+# MCP surfaces prompt for confirmation, and supports dry_run to preview payloads.
+
+
+@mcp.tool()
+async def create_customer(
+    first_name: str,
+    last_name: str,
+    email: str | None = None,
+    phone: str | None = None,
+    marketing_allowed: bool | None = None,
+    confirm_duplicate: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new customer record in Clover.
+
+    Idempotency guard: searches for an existing customer with the same email or
+    phone before creating. If a match is found and confirm_duplicate is False,
+    the call is refused and the existing match is returned.
+
+    dry_run=True returns the would-be POST payload without sending it.
+    Requires CUSTOMERS_R (duplicate check) and CUSTOMERS_W (write).
+    """
+    return await _create_customer(
+        _get_client(),
+        first_name=first_name,
+        last_name=last_name,
+        email=email,
+        phone=phone,
+        marketing_allowed=marketing_allowed,
+        confirm_duplicate=confirm_duplicate,
+        dry_run=dry_run,
+    )
+
+
+@mcp.tool()
+async def set_item_price_cents(
+    item_id: str,
+    new_price_cents: int,
+    expected_current_price_cents: int,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Set an item's price (in cents, absolute value).
+
+    Optimistic lock: refuses the write unless the item's current price equals
+    expected_current_price_cents (prevents stale-context overwrites). Bounds:
+    0 <= new_price_cents <= 100_000_000. dry_run=True previews the PUT body.
+    Requires INVENTORY_R and INVENTORY_W.
+    """
+    return await _set_item_price_cents(
+        _get_client(), item_id, new_price_cents, expected_current_price_cents, dry_run
+    )
+
+
+@mcp.tool()
+async def set_item_stock_quantity(
+    item_id: str,
+    new_quantity: int,
+    expected_current_quantity: int,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Set an item's stock to an ABSOLUTE quantity (not a delta).
+
+    Optimistic lock: refuses unless current stock equals expected_current_quantity.
+    Bounds: 0 <= new_quantity <= 1_000_000. dry_run=True previews the PUT body.
+    Requires INVENTORY_R and INVENTORY_W.
+    """
+    return await _set_item_stock_quantity(
+        _get_client(), item_id, new_quantity, expected_current_quantity, dry_run
+    )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
