@@ -48,15 +48,21 @@ async def get_sales_summary(
 
     Rules applied:
     - Only result=SUCCESS payments are counted in payment_count and gross_sales.
-    - Voids and refunds are tallied separately (refund_count, void_count,
-      refund_amount) — they are NOT silently netted into payment_count.
+    - Refunds come from the dedicated /refunds endpoint (Clover refunds are
+      separate objects, not negative-amount payments). Voids are counted from
+      voided payments. Both are tallied separately (refund_count/refund_amount,
+      void_count) — never silently netted into payment_count.
+    - net_sales = gross_sales - refund_amount.
     - Tips and taxes are broken out as their own line items.
-    - Service charges are summed from orders (not payments, where Clover does not
-      expose them) and reported as service_charges_collected. Requires ORDERS_R.
+    - Service charges are NOT reported separately: Clover exposes them on the
+      order only as a percentage (no per-order computed amount), and the amount
+      customers actually paid is already included in gross_sales via the payment
+      totals. Breaking them out would require recomputing percentage × subtotal
+      per order, which is out of scope for this summary.
     - Offline payments are included; a warning flag is set if any are present.
     - Currency is fetched from the merchant record — never defaulted to USD.
 
-    Requires PAYMENTS_R and ORDERS_R.
+    Requires PAYMENTS_R (covers payments and refunds).
     This tool does NOT support payment capture, refund, or void actions.
     """
     today = _today_utc()
@@ -72,7 +78,6 @@ async def get_sales_summary(
     gross_cents = 0
     tip_cents = 0
     tax_cents = 0
-    service_charge_cents = 0
     payment_count = 0
     refund_count = 0
     void_count = 0
@@ -124,9 +129,9 @@ async def get_sales_summary(
         async for _ in client.iterate("/payments", limit=100, **void_params):
             void_count += 1
 
-    # ponytail: refunds via the amount<0 SUCCESS heuristic — unverified against a
-    # sandbox with no transaction data. Upgrade path if it proves wrong in prod:
-    # query the dedicated GET /v3/merchants/{mId}/refunds endpoint instead.
+    # Refunds — the dedicated /refunds endpoint is authoritative. Clover refunds
+    # are separate objects with a positive `amount` (cents), not negative-amount
+    # payments. Covered by PAYMENTS_R.
     for chunk_start, chunk_end in split_window(d_from, d_to):
         ts_from = date_to_ms(chunk_start, end_of_day=False)
         ts_to = date_to_ms(chunk_end, end_of_day=True)
@@ -135,36 +140,14 @@ async def get_sales_summary(
             "filter": [
                 f"createdTime>={ts_from}",
                 f"createdTime<={ts_to}",
-                "result=SUCCESS",
-                "amount<0",
             ],
         }
 
-        async for raw in client.iterate("/payments", limit=100, **refund_params):
+        async for raw in client.iterate("/refunds", limit=100, **refund_params):
             refund_count += 1
-            refund_cents += raw.get("amount", 0)  # negative value
+            refund_cents += raw.get("amount", 0)  # positive cents
 
-    # Service charges live on the order, not the payment — Clover does not expose
-    # them on /payments. Sum serviceCharge.amount across orders in the window.
-    for chunk_start, chunk_end in split_window(d_from, d_to):
-        ts_from = date_to_ms(chunk_start, end_of_day=False)
-        ts_to = date_to_ms(chunk_end, end_of_day=True)
-
-        order_params: dict[str, Any] = {
-            "filter": [
-                f"createdTime>={ts_from}",
-                f"createdTime<={ts_to}",
-            ],
-            "expand": "serviceCharge",
-        }
-
-        async for raw in client.iterate("/orders", limit=100, **order_params):
-            sc = raw.get("serviceCharge")
-            if isinstance(sc, dict):
-                service_charge_cents += sc.get("amount") or 0
-
-    # net_sales: gross minus absolute refund amount
-    net_cents = gross_cents + refund_cents  # refund_cents is negative
+    net_cents = gross_cents - refund_cents
 
     avg_ticket = (gross_cents // payment_count) if payment_count > 0 else 0
 
@@ -181,8 +164,7 @@ async def get_sales_summary(
         "net_sales": _money(net_cents, currency),
         "tax_collected": _money(tax_cents, currency),
         "tips_collected": _money(tip_cents, currency),
-        "service_charges_collected": _money(service_charge_cents, currency),
-        "refund_amount": _money(abs(refund_cents), currency),
+        "refund_amount": _money(refund_cents, currency),
         "payment_count": payment_count,
         "refund_count": refund_count,
         "void_count": void_count,
