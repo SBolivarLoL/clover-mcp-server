@@ -6,7 +6,8 @@ Clover consent page, catches the redirect, exchanges the code at the v2 token
 endpoint, and returns an **expiring access token + refresh token** pair (unlike
 the legacy non-expiring merchant token).
 
-It writes the pair to the oauth_refresh token store and prints the .env lines.
+It writes the pair to the 0600 token store; the server reads tokens from there
+in oauth_refresh mode (the values are never printed).
 
 Prereqs (already set for this app):
   - App redirect URI / Site URL = http://localhost:8080
@@ -40,11 +41,8 @@ REDIRECT_URI = "http://localhost:8080"
 
 # v2 expiring-token flow (sandbox). Consent page is on sandbox.dev.clover.com;
 # the token exchange is on the API host apisandbox.dev.clover.com.
-AUTHORIZE_URL = (
-    "https://sandbox.dev.clover.com/oauth/v2/authorize?"
-    + urllib.parse.urlencode(
-        {"client_id": CLIENT_ID, "redirect_uri": REDIRECT_URI, "response_type": "code"}
-    )
+AUTHORIZE_URL = "https://sandbox.dev.clover.com/oauth/v2/authorize?" + urllib.parse.urlencode(
+    {"client_id": CLIENT_ID, "redirect_uri": REDIRECT_URI, "response_type": "code"}
 )
 TOKEN_URL = "https://apisandbox.dev.clover.com/oauth/v2/token"
 TOKEN_STORE = Path("~/.config/clover-mcp/tokens.json").expanduser()
@@ -146,16 +144,16 @@ def main() -> None:
 
     TokenStore(TOKEN_STORE).save({"access_token": access, "refresh_token": refresh})
 
+    # Do NOT print the token values — they are written to the 0600 store and the
+    # server reads them from there in oauth_refresh mode.
     print("\n✅ Expiring tokens received and written to", TOKEN_STORE)
     print(f"   access_token  expires {_fmt(t.get('access_token_expiration'))}")
     print(f"   refresh_token expires {_fmt(t.get('refresh_token_expiration'))}")
-    print("\nAdd these to .env to use oauth_refresh mode:\n")
+    print("\nSet these in .env (no token values needed — they live in the store):")
     print("  CLOVER_AUTH_MODE=oauth_refresh")
     if mid:
         print(f"  CLOVER_MERCHANT_ID={mid}")
-    print(f"  CLOVER_ACCESS_TOKEN={access}")
-    print(f"  CLOVER_REFRESH_TOKEN={refresh}")
-    print("\n(CLOVER_OAUTH_CLIENT_ID / CLOVER_OAUTH_CLIENT_SECRET are already set.)")
+    print("  CLOVER_OAUTH_CLIENT_ID / CLOVER_OAUTH_CLIENT_SECRET (already set)")
 
 
 if __name__ == "__main__":

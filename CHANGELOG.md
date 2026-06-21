@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Security
+- `scripts/get_sandbox_token.py` no longer prints access/refresh token values
+  (CodeQL `py/clear-text-logging-sensitive-data`); they're written only to the
+  0600 token store.
+- `oauth_refresh` mode now reads access/refresh tokens from the token store, so
+  they never need to be pasted into `.env`. `CLOVER_ACCESS_TOKEN` /
+  `CLOVER_REFRESH_TOKEN` env vars are optional when the store has them.
 ### Fixed
 - `get_sales_summary` refund totals now come from the dedicated `/refunds`
   endpoint (Clover refunds are separate objects with a positive amount) instead

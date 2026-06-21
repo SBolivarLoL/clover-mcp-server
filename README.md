@@ -74,7 +74,7 @@ Optional:
 ### Auth modes
 
 - **`token`** — paste a static access token. Works for sandbox and single-merchant production use. If the token expires, regenerate it in the Clover Developer Dashboard.
-- **`oauth_refresh`** — supply a refresh token + OAuth client credentials; the server auto-refreshes on expiry and persists the new token pair to `CLOVER_TOKEN_STORE` (default: `~/.config/clover-mcp/tokens.json`, mode 0600). Clover refresh tokens are single-use, so the rotated pair is written back after each refresh.
+- **`oauth_refresh`** — the server auto-refreshes on expiry and persists the new token pair to `CLOVER_TOKEN_STORE` (default: `~/.config/clover-mcp/tokens.json`, mode 0600). Clover refresh tokens are single-use, so the rotated pair is written back after each refresh. Run `scripts/get_sandbox_token.py` to obtain tokens — it writes them straight to the store, so you only set `CLOVER_AUTH_MODE`, `CLOVER_OAUTH_CLIENT_ID`, `CLOVER_OAUTH_CLIENT_SECRET`, and `CLOVER_MERCHANT_ID` in `.env` (no token values needed). Pasting `CLOVER_ACCESS_TOKEN` / `CLOVER_REFRESH_TOKEN` into `.env` still works as an alternative.
 
 > **Use a least-privilege token.** Grant only the permission scopes the tools you actually use require (see the table below). A read-only deployment needs no `*_W` scopes at all. Don't reuse a production token in sandbox or vice versa.
 
