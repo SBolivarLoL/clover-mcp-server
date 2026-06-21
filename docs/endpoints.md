@@ -51,10 +51,10 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 | `/v3/merchants/{mId}/items/{itemId}` | PUT | ✅ | ⚠️ body needs `{"name": <str>, "price": <cents>}` — **`name` is required**, 400 without it (pre-check GET supplies it). Returns full item. Negative price → 400. Requires INVENTORY_W. |
 | `/v3/merchants/{mId}/item_stocks/{itemId}` | GET | ✅ | `{item:{id}, stockCount, quantity(float), modifiedTime}`. If stock never set, only `{item:{id}}` (no quantity key). |
 | `/v3/merchants/{mId}/item_stocks/{itemId}` | PUT | ✅ | body `{"quantity": <int>}` — ABSOLUTE (overwrites, not delta; confirmed). `quantity` returned as **float**. No stock-tracking/autoManage prerequisite — works on any item. Requires INVENTORY_W. |
-| `/v3/merchants/{mId}/categories` | GET | 🟡 | v1.1 `list_categories`. `{elements:[]}`; shape `{id,name,sortOrder}`. _Verification pending._ |
-| `/v3/merchants/{mId}/modifier_groups` | GET | 🟡 | v1.1 `list_modifiers`. expand=modifiers; group shape `{id,name,...,modifiers:[{id,name,price}]}`. _Verification pending._ |
-| `/v3/merchants/{mId}/tax_rates` | GET | 🟡 | v1.1 `list_taxes`. shape `{id,name,rate,isDefault,rate_percent}`. ⚠️ `rate_percent = rate/100000` (10_000_000==100%) per docs — _unit not yet sandbox-verified._ |
-| `/v3/merchants/{mId}/devices` | GET | 🟡 | v1.1 `list_devices` (MERCHANT_R). shape `{id,name,serial,model,productName,deviceTypeName}`. _Verification pending._ |
+| `/v3/merchants/{mId}/categories` | GET | ✅ | v1.1 `list_categories`. `{elements:[]}`; shape `{id,name,sortOrder}`. POST `{name}` creates. Sandbox-verified 2026-06-21. |
+| `/v3/merchants/{mId}/modifier_groups` | GET | ✅ | v1.1 `list_modifiers`. expand=modifiers returns `{id,name,showByDefault,...,modifiers:[{id,name,price}]}`. POST modifier at `/modifier_groups/{id}/modifiers`. Sandbox-verified. |
+| `/v3/merchants/{mId}/tax_rates` | GET | ✅ | v1.1 `list_taxes`. shape `{id,name,rate,isDefault,rate_percent}`. ✅ **unit confirmed**: seeded `rate=825000` → `rate_percent=8.25`, i.e. `rate/100000` (10_000_000==100%). Sandbox always includes a `NO_TAX_APPLIED` rate. |
+| `/v3/merchants/{mId}/devices` | GET | ✅ | v1.1 `list_devices` (MERCHANT_R). Returns `{elements:[]}`; empty on a sandbox with no provisioned hardware (devices can't be created via REST). Shape `{id,name,serial,model,productName,deviceTypeName}`. Sandbox-verified (empty). |
 
 ---
 
@@ -72,9 +72,9 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 
 | Endpoint | Method | Status | Notes |
 |---|---|---|---|
-| `/v3/merchants/{mId}/employees` | GET | 🟡 | v1.1 `list_employees`/`get_employee`. Shaper drops `pin`/`unhashedPin`. Requires EMPLOYEES_R (optional scope). _Shape from API docs; live sandbox verification pending._ |
-| `/v3/merchants/{mId}/employees/{employeeId}` | GET | 🟡 | Single employee. See above. |
-| `/v3/merchants/{mId}/employees/{employeeId}/shifts` | GET | 🟡 | v1.1 `list_shifts`/`list_active_shifts`. Merchant-wide listing iterates employees (no documented merchant-level `/shifts`). Active = no `outTime`. Date filter on `inTime`. _Verification pending._ |
+| `/v3/merchants/{mId}/employees` | GET | ✅ | v1.1 `list_employees`/`get_employee`. `{elements:[]}`; shaper drops `pin`/`unhashedPin` (none leaked live). `isOwner`/`role` present. EMPLOYEES_R (optional scope). Sandbox-verified 2026-06-21. |
+| `/v3/merchants/{mId}/employees/{employeeId}` | GET | ✅ | Single employee. POST works (created a seed employee with `{name,role:EMPLOYEE}`). |
+| `/v3/merchants/{mId}/employees/{employeeId}/shifts` | GET | ✅ | v1.1 `list_shifts`/`list_active_shifts`. ⚠️ no merchant-level `/shifts` — listings iterate employees. Shift payload carries `employee:{id}` only (no name) → tools inject the name from the iterated employee. Active = falsy `outTime`. POST `{}` clocks in (open shift). Sandbox-verified. |
 
 ---
 

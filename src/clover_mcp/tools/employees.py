@@ -62,12 +62,20 @@ async def get_employee(client: CloverClient, employee_id: str) -> dict[str, Any]
 
 
 async def _shifts_for_employee(
-    client: CloverClient, employee_id: str, ts_filters: list[str]
+    client: CloverClient,
+    employee_id: str,
+    ts_filters: list[str],
+    employee_name: str | None = None,
 ) -> list[dict[str, Any]]:
     params: dict[str, Any] = {"filter": ts_filters} if ts_filters else {}
     out: list[dict[str, Any]] = []
     async for raw in client.iterate(f"/employees/{employee_id}/shifts", limit=100, **params):
-        out.append(shape_shift(raw))
+        shaped = shape_shift(raw)
+        # The shift payload carries only employee.id; fill the name when the
+        # caller already has the employee record (avoids a per-shift lookup).
+        if employee_name and not shaped.get("employee_name"):
+            shaped["employee_name"] = employee_name
+        out.append(shaped)
     return out
 
 
@@ -105,7 +113,9 @@ async def list_shifts(
     else:
         shifts = []
         async for emp in client.iterate("/employees", limit=100):
-            shifts.extend(await _shifts_for_employee(client, emp["id"], ts_filters))
+            shifts.extend(
+                await _shifts_for_employee(client, emp["id"], ts_filters, emp.get("name"))
+            )
 
     return {"shifts": shifts, "count": len(shifts)}
 
@@ -119,7 +129,7 @@ async def list_active_shifts(client: CloverClient) -> dict[str, Any]:
     """
     active: list[dict[str, Any]] = []
     async for emp in client.iterate("/employees", limit=100):
-        for shift in await _shifts_for_employee(client, emp["id"], []):
+        for shift in await _shifts_for_employee(client, emp["id"], [], emp.get("name")):
             if not shift.get("outTime"):
                 active.append(shift)
     return {"shifts": active, "count": len(active)}
