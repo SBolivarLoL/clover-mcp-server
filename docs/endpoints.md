@@ -9,6 +9,7 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 
 ## Status legend
 - ✅ Verified — hit against sandbox, response shape confirmed
+- 🟡 Implemented, unverified — shipped from API docs; live sandbox audit still owed
 - 🔲 Pending — not yet audited
 - ⚠️ Mismatch — documented shape differs from actual response (note discrepancy)
 
@@ -50,7 +51,10 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 | `/v3/merchants/{mId}/items/{itemId}` | PUT | ✅ | ⚠️ body needs `{"name": <str>, "price": <cents>}` — **`name` is required**, 400 without it (pre-check GET supplies it). Returns full item. Negative price → 400. Requires INVENTORY_W. |
 | `/v3/merchants/{mId}/item_stocks/{itemId}` | GET | ✅ | `{item:{id}, stockCount, quantity(float), modifiedTime}`. If stock never set, only `{item:{id}}` (no quantity key). |
 | `/v3/merchants/{mId}/item_stocks/{itemId}` | PUT | ✅ | body `{"quantity": <int>}` — ABSOLUTE (overwrites, not delta; confirmed). `quantity` returned as **float**. No stock-tracking/autoManage prerequisite — works on any item. Requires INVENTORY_W. |
-| `/v3/merchants/{mId}/categories` | GET | 🔲 | List categories |
+| `/v3/merchants/{mId}/categories` | GET | 🟡 | v1.1 `list_categories`. `{elements:[]}`; shape `{id,name,sortOrder}`. _Verification pending._ |
+| `/v3/merchants/{mId}/modifier_groups` | GET | 🟡 | v1.1 `list_modifiers`. expand=modifiers; group shape `{id,name,...,modifiers:[{id,name,price}]}`. _Verification pending._ |
+| `/v3/merchants/{mId}/tax_rates` | GET | 🟡 | v1.1 `list_taxes`. shape `{id,name,rate,isDefault,rate_percent}`. ⚠️ `rate_percent = rate/100000` (10_000_000==100%) per docs — _unit not yet sandbox-verified._ |
+| `/v3/merchants/{mId}/devices` | GET | 🟡 | v1.1 `list_devices` (MERCHANT_R). shape `{id,name,serial,model,productName,deviceTypeName}`. _Verification pending._ |
 
 ---
 
@@ -68,10 +72,9 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 
 | Endpoint | Method | Status | Notes |
 |---|---|---|---|
-| `/v3/merchants/{mId}/employees` | GET | 🔲 | List employees |
-| `/v3/merchants/{mId}/employees/{employeeId}` | GET | 🔲 | Single employee |
-| `/v3/merchants/{mId}/employees/{employeeId}/shifts` | GET | 🔲 | Shifts for employee; filter=serverCreatedTime>=X |
-| `/v3/merchants/{mId}/shifts` | GET | 🔲 | All shifts across merchant (check if supported) |
+| `/v3/merchants/{mId}/employees` | GET | 🟡 | v1.1 `list_employees`/`get_employee`. Shaper drops `pin`/`unhashedPin`. Requires EMPLOYEES_R (optional scope). _Shape from API docs; live sandbox verification pending._ |
+| `/v3/merchants/{mId}/employees/{employeeId}` | GET | 🟡 | Single employee. See above. |
+| `/v3/merchants/{mId}/employees/{employeeId}/shifts` | GET | 🟡 | v1.1 `list_shifts`/`list_active_shifts`. Merchant-wide listing iterates employees (no documented merchant-level `/shifts`). Active = no `outTime`. Date filter on `inTime`. _Verification pending._ |
 
 ---
 

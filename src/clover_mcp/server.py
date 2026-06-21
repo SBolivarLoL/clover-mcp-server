@@ -16,16 +16,25 @@ from clover_mcp.errors import CloverAPIError
 from clover_mcp.tools.customers import create_customer as _create_customer
 from clover_mcp.tools.customers import get_customer as _get_customer
 from clover_mcp.tools.customers import search_customers as _search_customers
+from clover_mcp.tools.employees import get_employee as _get_employee
+from clover_mcp.tools.employees import list_active_shifts as _list_active_shifts
+from clover_mcp.tools.employees import list_employees as _list_employees
+from clover_mcp.tools.employees import list_shifts as _list_shifts
 from clover_mcp.tools.inventory import get_item as _get_item
+from clover_mcp.tools.inventory import list_categories as _list_categories
 from clover_mcp.tools.inventory import list_items as _list_items
 from clover_mcp.tools.inventory import list_low_stock_items as _list_low_stock_items
+from clover_mcp.tools.inventory import list_modifiers as _list_modifiers
+from clover_mcp.tools.inventory import list_taxes as _list_taxes
 from clover_mcp.tools.inventory import set_item_price_cents as _set_item_price_cents
 from clover_mcp.tools.inventory import set_item_stock_quantity as _set_item_stock_quantity
 from clover_mcp.tools.merchant import get_merchant_info as _get_merchant_info
+from clover_mcp.tools.merchant import list_devices as _list_devices
 from clover_mcp.tools.orders import get_order as _get_order
 from clover_mcp.tools.orders import list_open_orders as _list_open_orders
 from clover_mcp.tools.orders import list_orders as _list_orders
 from clover_mcp.tools.reporting import get_sales_summary as _get_sales_summary
+from clover_mcp.tools.reporting import get_top_items as _get_top_items
 from clover_mcp.tools.reporting import list_payments as _list_payments
 
 
@@ -68,20 +77,30 @@ async def _check_permissions() -> None:
     client = _get_client()
     missing: list[str] = []
 
-    probes: list[tuple[str, str]] = [
-        ("MERCHANT_R", f"/v3/merchants/{client._config.merchant_id}"),
-        ("PAYMENTS_R", "/payments"),
-        ("ORDERS_R", "/orders"),
-        ("INVENTORY_R", "/items"),
-        ("CUSTOMERS_R", "/customers"),
+    # Required scopes gate startup. EMPLOYEES_R is optional (v1.1 employee/shift
+    # tools are opt-in): a 403 only warns so merchants without it keep working.
+    probes: list[tuple[str, str, bool]] = [
+        ("MERCHANT_R", f"/v3/merchants/{client._config.merchant_id}", True),
+        ("PAYMENTS_R", "/payments", True),
+        ("ORDERS_R", "/orders", True),
+        ("INVENTORY_R", "/items", True),
+        ("CUSTOMERS_R", "/customers", True),
+        ("EMPLOYEES_R", "/employees", False),
     ]
 
-    for perm, path in probes:
+    for perm, path, required in probes:
         try:
             await client.get(path, limit=1)
         except CloverAPIError as exc:
             if exc.status_code == 403:
-                missing.append(f"  • {perm}: {exc.message}")
+                if required:
+                    missing.append(f"  • {perm}: {exc.message}")
+                else:
+                    print(
+                        f"WARNING: {perm} not granted — its tools will return 403 "
+                        "(employee/shift tools are optional).",
+                        file=sys.stderr,
+                    )
             elif exc.status_code == 401:
                 print(
                     "ERROR: Invalid or expired access token. Check CLOVER_ACCESS_TOKEN.",
@@ -229,6 +248,77 @@ async def list_low_stock_items(threshold: int = 5) -> dict[str, Any]:
     Items with no stock tracking are excluded. Requires INVENTORY_R.
     """
     return await _list_low_stock_items(_get_client(), threshold=threshold)
+
+
+@mcp.tool(annotations=_READ)
+async def list_categories() -> dict[str, Any]:
+    """Return all inventory categories. Requires INVENTORY_R."""
+    return await _list_categories(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_modifiers() -> dict[str, Any]:
+    """Return all modifier groups with their modifiers. Requires INVENTORY_R."""
+    return await _list_modifiers(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_taxes() -> dict[str, Any]:
+    """Return the merchant's tax rates (raw rate + computed percent). Requires INVENTORY_R."""
+    return await _list_taxes(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_devices() -> dict[str, Any]:
+    """Return the merchant's Clover devices/terminals. Requires MERCHANT_R."""
+    return await _list_devices(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def get_top_items(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    top_n: int = 10,
+) -> dict[str, Any]:
+    """Return the best-selling items in a date window, ranked by units sold.
+
+    Defaults to today (UTC); 90-day chunked. Each line item counts as one unit.
+    Requires ORDERS_R.
+    """
+    return await _get_top_items(_get_client(), date_from=date_from, date_to=date_to, top_n=top_n)
+
+
+@mcp.tool(annotations=_READ)
+async def list_employees(limit: int = 100, offset: int = 0) -> dict[str, Any]:
+    """Return a page of employees (PINs never returned). Requires EMPLOYEES_R."""
+    return await _list_employees(_get_client(), limit=limit, offset=offset)
+
+
+@mcp.tool(annotations=_READ)
+async def get_employee(employee_id: str) -> dict[str, Any]:
+    """Return a single employee by ID (PINs never returned). Requires EMPLOYEES_R."""
+    return await _get_employee(_get_client(), employee_id)
+
+
+@mcp.tool(annotations=_READ)
+async def list_shifts(
+    employee_id: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """List shifts, optionally by employee and/or date window. Requires EMPLOYEES_R.
+
+    Without employee_id, aggregates shifts across all employees.
+    """
+    return await _list_shifts(
+        _get_client(), employee_id=employee_id, date_from=date_from, date_to=date_to
+    )
+
+
+@mcp.tool(annotations=_READ)
+async def list_active_shifts() -> dict[str, Any]:
+    """Return currently open shifts (clocked in, not out) across all employees. Requires EMPLOYEES_R."""
+    return await _list_active_shifts(_get_client())
 
 
 @mcp.tool(annotations=_READ)

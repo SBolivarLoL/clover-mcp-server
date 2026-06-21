@@ -6,6 +6,21 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.5] — 2026-06-21
+### Added
+- v1.1 read tools (9), all read-only, allowlist-shaped, annotated, tested:
+  - `list_employees`, `get_employee`, `list_shifts`, `list_active_shifts`
+    (`EMPLOYEES_R` — PINs never returned; shifts aggregate across employees).
+  - `list_categories`, `list_modifiers`, `list_taxes` (`INVENTORY_R`).
+  - `list_devices` (`MERCHANT_R`).
+  - `get_top_items` (`ORDERS_R`) — best-sellers by units in a date window.
+- `EMPLOYEES_R` startup permission probe. It is **optional**: a 403 only warns
+  (employee/shift tools are opt-in) and does not block server startup.
+### Notes
+- The new endpoints are implemented from the Clover API docs and unit-tested
+  against mocked responses; live sandbox shape-verification is still owed and
+  tracked in [docs/endpoints.md](docs/endpoints.md) (status 🟡).
+
 ## [0.1.4] — 2026-06-21
 ### Security
 - `scripts/get_sandbox_token.py` no longer prints access/refresh token values

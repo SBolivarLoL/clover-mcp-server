@@ -6,12 +6,17 @@ If a shaper accidentally passes through PII, these tests catch it.
 """
 
 from clover_mcp.shaping import (
+    shape_category,
     shape_customer,
+    shape_device,
     shape_employee,
     shape_item,
     shape_merchant,
+    shape_modifier_group,
     shape_order,
     shape_payment,
+    shape_shift,
+    shape_tax,
 )
 
 BANNED_KEYS = {"pin", "unhashedPin", "cards", "cardTransaction", "href", "token", "pan"}
@@ -112,6 +117,26 @@ def test_order_customer_cards_stripped() -> None:
 def test_item_no_href() -> None:
     out = shape_item(DIRTY_ITEM)
     _assert_no_banned(out)
+
+
+def test_shift_strips_href() -> None:
+    out = shape_shift(
+        {
+            "id": "SH1",
+            "inTime": 1700000000000,
+            "outTime": 0,
+            "employee": {"id": "E1", "name": "Bob"},
+            "href": "https://api.clover.com/v3/merchants/M1/employees/E1/shifts/SH1",
+        }
+    )
+    _assert_no_banned(out)
+    assert out["employee_id"] == "E1"
+
+
+def test_v11_list_shapers_strip_href() -> None:
+    dirty = {"id": "X1", "name": "thing", "href": "https://api.clover.com/x"}
+    for shaper in (shape_category, shape_modifier_group, shape_device, shape_tax):
+        _assert_no_banned(shaper(dict(dirty)))
 
 
 def test_merchant_shaped_cleanly() -> None:

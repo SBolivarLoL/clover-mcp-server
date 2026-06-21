@@ -164,3 +164,32 @@ def shape_shift(raw: dict[str, Any]) -> dict[str, Any]:
         out["employee_id"] = raw["employee"].get("id")
         out["employee_name"] = raw["employee"].get("name")
     return out
+
+
+def shape_category(raw: dict[str, Any]) -> dict[str, Any]:
+    return _pick(raw, "id", "name", "sortOrder")
+
+
+def shape_modifier_group(raw: dict[str, Any]) -> dict[str, Any]:
+    out = _pick(raw, "id", "name", "showByDefault", "minRequired", "maxAllowed")
+    if "modifiers" in raw:
+        mods = raw["modifiers"]
+        elements = mods.get("elements", mods) if isinstance(mods, dict) else mods
+        out["modifiers"] = [
+            _pick(m, "id", "name", "price") for m in elements if isinstance(m, dict)
+        ]
+    return out
+
+
+def shape_device(raw: dict[str, Any]) -> dict[str, Any]:
+    return _pick(raw, "id", "name", "serial", "model", "productName", "deviceTypeName")
+
+
+def shape_tax(raw: dict[str, Any]) -> dict[str, Any]:
+    out = _pick(raw, "id", "name", "rate", "isDefault", "taxType")
+    # ponytail: Clover encodes rate as 10_000_000 == 100%; surface a human percent
+    # alongside the raw value. Units inferred from the API docs, not yet sandbox-verified.
+    rate = raw.get("rate")
+    if isinstance(rate, int):
+        out["rate_percent"] = round(rate / 100_000, 4)
+    return out

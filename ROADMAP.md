@@ -26,20 +26,25 @@ permission probe → record the row in `docs/endpoints.md`.**
 
 ---
 
-## v1.1 — expanded read surface (opt-in, none gate v1)
+## v1.1 — expanded read surface (opt-in, none gate v1) — **shipped 0.1.5**
 
 New read tools + their permission scopes:
 
-- [ ] `list_employees`, `get_employee` — `EMPLOYEES_R` (shaper already drops PINs)
-- [ ] `list_shifts(employee_id?, date_from?, date_to?)`, `list_active_shifts` — `EMPLOYEES_R`
-- [ ] `list_categories`, `list_modifiers` — `INVENTORY_R`
-- [ ] `get_top_items` — aggregate across orders/line items (`ORDERS_R`)
-- [ ] `list_devices`, `list_taxes` — `MERCHANT_R` / `INVENTORY_R` as applicable
+- [x] `list_employees`, `get_employee` — `EMPLOYEES_R` (shaper drops PINs)
+- [x] `list_shifts(employee_id?, date_from?, date_to?)`, `list_active_shifts` — `EMPLOYEES_R`
+- [x] `list_categories`, `list_modifiers` — `INVENTORY_R`
+- [x] `get_top_items` — aggregate across orders/line items (`ORDERS_R`)
+- [x] `list_devices`, `list_taxes` — `MERCHANT_R` / `INVENTORY_R`
 
 Housekeeping for v1.1:
-- [ ] Re-add the `EMPLOYEES_R` row to the README permission matrix once those tools land.
-- [ ] Add startup permission probe for `EMPLOYEES_R`.
-- [ ] No customer/item/employee **updates** beyond v1 — those need more write-safety UX thought.
+- [x] Re-add the `EMPLOYEES_R` row to the README permission matrix.
+- [x] Add startup permission probe for `EMPLOYEES_R` (optional — warns, never blocks startup).
+- [x] No customer/item/employee **updates** beyond v1 — still deliberately deferred.
+
+Follow-up owed (not blocking):
+- [ ] Live sandbox shape-verification for the 9 new endpoints (currently 🟡 in
+      `docs/endpoints.md` — implemented from API docs + mock-tested). Confirm
+      `tax_rates.rate` units and whether a merchant-level `/shifts` list exists.
 
 ---
 

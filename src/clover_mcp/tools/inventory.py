@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from clover_mcp.client import CloverClient
-from clover_mcp.shaping import shape_item
+from clover_mcp.shaping import shape_category, shape_item, shape_modifier_group, shape_tax
 
 
 async def list_items(
@@ -83,6 +83,37 @@ async def list_low_stock_items(
         "items": low,
         "count": len(low),
     }
+
+
+async def list_categories(client: CloverClient) -> dict[str, Any]:
+    """Return all inventory categories (up to 1000). Requires INVENTORY_R."""
+    cats: list[dict[str, Any]] = []
+    async for el in client.iterate("/categories", limit=100):
+        cats.append(shape_category(el))
+        if len(cats) >= 1000:
+            break
+    return {"categories": cats, "count": len(cats)}
+
+
+async def list_modifiers(client: CloverClient) -> dict[str, Any]:
+    """Return all modifier groups with their modifiers (up to 1000 groups).
+
+    Requires INVENTORY_R.
+    """
+    groups: list[dict[str, Any]] = []
+    async for el in client.iterate("/modifier_groups", limit=100, expand="modifiers"):
+        groups.append(shape_modifier_group(el))
+        if len(groups) >= 1000:
+            break
+    return {"modifier_groups": groups, "count": len(groups)}
+
+
+async def list_taxes(client: CloverClient) -> dict[str, Any]:
+    """Return the merchant's tax rates. Requires INVENTORY_R."""
+    taxes: list[dict[str, Any]] = []
+    async for el in client.iterate("/tax_rates", limit=100):
+        taxes.append(shape_tax(el))
+    return {"tax_rates": taxes, "count": len(taxes)}
 
 
 # ── Write tools ───────────────────────────────────────────────────────────────

@@ -178,6 +178,65 @@ async def get_sales_summary(
     return result
 
 
+async def get_top_items(
+    client: CloverClient,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    top_n: int = 10,
+) -> dict[str, Any]:
+    """Return the best-selling items in a date window, ranked by units sold.
+
+    Aggregates line items across orders in the window (default: today, UTC),
+    90-day chunked. Each line item counts as one unit and its `price` (cents) as
+    revenue — Clover represents quantity via repeated line items, so per-unit
+    weighted items (unitQty) are approximated as a single unit.
+
+    Requires ORDERS_R.
+    """
+    if top_n < 1 or top_n > 100:
+        raise ValueError("top_n must be between 1 and 100")
+
+    today = _today_utc()
+    d_from = _parse_date(date_from, "date_from") if date_from else today
+    d_to = _parse_date(date_to, "date_to") if date_to else today
+    if d_from > d_to:
+        raise ValueError(f"date_from ({d_from}) must be ≤ date_to ({d_to})")
+
+    currency = await client.merchant_currency()
+
+    # name -> [units, revenue_cents]
+    tally: dict[str, list[int]] = {}
+    for chunk_start, chunk_end in split_window(d_from, d_to):
+        ts_from = date_to_ms(chunk_start, end_of_day=False)
+        ts_to = date_to_ms(chunk_end, end_of_day=True)
+        params: dict[str, Any] = {
+            "filter": [f"createdTime>={ts_from}", f"createdTime<={ts_to}"],
+        }
+        async for order in client.iterate("/orders", limit=100, expand="lineItems", **params):
+            line_items = order.get("lineItems", {})
+            elements = line_items.get("elements", []) if isinstance(line_items, dict) else []
+            for li in elements:
+                if not isinstance(li, dict) or li.get("refunded"):
+                    continue
+                name = li.get("name") or "(unnamed)"
+                entry = tally.setdefault(name, [0, 0])
+                entry[0] += 1
+                entry[1] += li.get("price", 0) or 0
+
+    ranked = sorted(tally.items(), key=lambda kv: (kv[1][0], kv[1][1]), reverse=True)[:top_n]
+    items = [
+        {"name": name, "units_sold": units, "revenue": _money(rev, currency)}
+        for name, (units, rev) in ranked
+    ]
+
+    return {
+        "window": {"from": d_from.isoformat(), "to": d_to.isoformat()},
+        "currency": currency,
+        "items": items,
+        "count": len(items),
+    }
+
+
 async def list_payments(
     client: CloverClient,
     date_from: str | None = None,
