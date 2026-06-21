@@ -1,9 +1,8 @@
 name: Release
 
 # Tag-triggered. Push a vX.Y.Z tag to build artifacts, create a GitHub Release,
-# and publish to PyPI via trusted publishing (OIDC — no token stored in the repo).
-# PyPI publish requires a one-time "trusted publisher" setup on PyPI for this
-# repo + workflow. See RELEASING.md.
+# publish to PyPI (trusted publishing), and list on the MCP Registry — all via
+# OIDC, no tokens stored in the repo. See RELEASING.md.
 on:
   push:
     tags:
@@ -48,3 +47,44 @@ jobs:
       # Until that's set up this step fails without affecting the GitHub Release above.
       - name: Publish to PyPI (trusted publishing)
         run: uv publish
+
+  # Lists the server on the official MCP Registry (metadata only — points at the
+  # PyPI package above). Separate job so it can be re-run without re-publishing
+  # PyPI. Ownership is verified via the `mcp-name` marker in the PyPI README.
+  publish-registry:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # MCP Registry GitHub OIDC auth
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Wait for PyPI to expose this version + mcp-name marker
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NAME="io.github.SBolivarLoL/clover-mcp"
+          for i in $(seq 1 18); do
+            if curl -fsS "https://pypi.org/pypi/clover-mcp/${VERSION}/json" \
+                 | grep -q "mcp-name: ${NAME}"; then
+              echo "PyPI ${VERSION} is live with the mcp-name marker."; exit 0
+            fi
+            echo "waiting for PyPI propagation ($i)…"; sleep 10
+          done
+          echo "::error::PyPI ${VERSION} not visible with mcp-name after ~3min" >&2; exit 1
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Sync server.json version to the tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          jq --arg v "$VERSION" '.version=$v | .packages[0].version=$v' server.json > server.tmp
+          mv server.tmp server.json
+
+      - name: Authenticate to MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        run: ./mcp-publisher publish

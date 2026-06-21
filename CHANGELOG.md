@@ -6,7 +6,12 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.1.2] — unreleased
+## [0.1.3] — unreleased
+### Added
+- Listed on the official MCP Registry (`server.json` + GitHub-OIDC publish step
+  in the release workflow). PyPI README carries the `mcp-name` ownership marker.
+
+## [0.1.2] — 2026-06-21
 ### Fixed
 - `__version__` is now derived from installed package metadata
   (`importlib.metadata`) instead of a hardcoded constant, so it can never drift
