@@ -12,14 +12,17 @@ permission probe → record the row in `docs/endpoints.md`.**
 
 ## Near-term follow-ups (small, do anytime)
 
-- [ ] **Verify `service_charges_collected` against real payment data.** Currently
-      summed from orders but never exercised with a paid order (sandbox can't seed
-      card payments). Confirm on a real merchant.
-- [ ] **Verify refund detection.** `get_sales_summary` uses an `amount<0` SUCCESS
-      heuristic (unverified — see the `ponytail:` note in `tools/reporting.py`).
-      Upgrade path: query `GET /v3/merchants/{mId}/refunds` directly.
-- [ ] **OAuth refresh live-soak.** Confirmed once end-to-end; let a token expire
-      naturally in real use and confirm transparent refresh + store rotation.
+- [x] **Service charges** — _resolved 2026-06-21._ Live audit showed an order's
+      `serviceCharge` is a percentage definition (`percentageDecimal`) with no
+      computed amount, so the old `serviceCharge.amount` sum was always 0. Removed
+      `service_charges_collected` (the paid amount is already in `gross_sales`);
+      dropped the `ORDERS_R` dependency from `get_sales_summary`.
+- [x] **Refund detection** — _resolved 2026-06-21._ Switched `get_sales_summary`
+      from the wrong `amount<0` payment heuristic to the dedicated
+      `GET /v3/merchants/{mId}/refunds` endpoint (positive `amount`).
+- [x] **OAuth refresh live-soak** — _verified 2026-06-21._ A real `get_merchant_info`
+      call succeeded in `oauth_refresh` mode against live Clover (earlier the full
+      401 → refresh → rotate → retry path was proven end-to-end).
 
 ---
 

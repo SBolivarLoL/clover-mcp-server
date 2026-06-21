@@ -124,8 +124,8 @@ Your token must have the following Clover permission scopes:
 | Permission | Used by |
 |---|---|
 | `MERCHANT_R` | `get_merchant_info` |
-| `ORDERS_R` | `list_orders`, `get_order`, `list_open_orders`, `get_sales_summary` |
-| `PAYMENTS_R` | `list_payments`, `get_sales_summary` |
+| `ORDERS_R` | `list_orders`, `get_order`, `list_open_orders` |
+| `PAYMENTS_R` | `list_payments`, `get_sales_summary` (payments + refunds) |
 | `INVENTORY_R` | `list_items`, `get_item`, `list_low_stock_items` |
 | `INVENTORY_W` | `set_item_price_cents`, `set_item_stock_quantity` |
 | `CUSTOMERS_R` | `search_customers`, `get_customer` |
@@ -138,9 +138,9 @@ Read scopes (`*_R`) are probed at startup; the server reports any missing ones a
 `get_sales_summary` makes the accounting explicit so the LLM can explain it:
 
 - **Gross** = sum of `result=SUCCESS` payment amounts. `FAIL`/`AUTH`/uncaptured `PRE_AUTH` are excluded.
-- **Voids and refunds are reported separately** (`void_count`, `refund_count`, `refund_amount`) — never silently netted into `payment_count`.
+- **Refunds** come from the dedicated `/refunds` endpoint (Clover refunds are separate objects with a positive amount, not negative payments). **Voids** are counted from voided payments. Both are reported separately (`refund_count`/`refund_amount`, `void_count`) — never netted into `payment_count`. `net_sales = gross_sales - refund_amount`.
 - **Tips and taxes** are broken out as their own line items.
-- **Service charges** are summed from orders (Clover does not expose them on payments) and reported as `service_charges_collected` — requires `ORDERS_R`.
+- **Service charges** are *not* reported separately: Clover exposes them on the order only as a percentage (no computed amount), and what customers actually paid is already in `gross_sales` via payment totals.
 - **Offline payments** are included; a `note` flags the window when any are present.
 - **Currency** comes from the merchant record, never defaulted.
 - Windows longer than 90 days are split and concatenated transparently.

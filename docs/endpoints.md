@@ -27,7 +27,7 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 | Endpoint | Method | Status | Notes |
 |---|---|---|---|
 | `/v3/merchants/{mId}/orders` | GET | ✅ | `{elements:[],href}`. Pagination offset/limit; page while `len==limit`. AND filters via **repeated** `?filter=X&filter=Y` (no `filter[]=`). Time: `filter=createdTime>=<ms>&filter=createdTime<=<ms>`. `state=open` valid. expand=lineItems,payments. Empty list → 200, never 404. |
-| `/v3/merchants/{mId}/orders/{orderId}` | GET | ✅ | expand=lineItems,payments. 404 body `{"message":"Not Found","details":"Order not found"}`. Never expand customers.cards. |
+| `/v3/merchants/{mId}/orders/{orderId}` | GET | ✅ | expand=lineItems,payments. 404 body `{"message":"Not Found","details":"Order not found"}`. Never expand customers.cards. ⚠️ `serviceCharge` (expandable) is a **percentage** definition `{id,name,enabled,percentageDecimal}` — no per-order computed dollar amount, so service charges aren't summed in `get_sales_summary`. |
 
 ---
 
@@ -35,7 +35,8 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 
 | Endpoint | Method | Status | Notes |
 |---|---|---|---|
-| `/v3/merchants/{mId}/payments` | GET | ✅ | `{elements:[],href}`. offset/limit pagination. Repeated `?filter=` ANDed. `filter=createdTime>=<ms>&filter=createdTime<=<ms>`; `result=SUCCESS`; `voided=true` valid. Allowed filter fields in `X-Clover-Allowed-Filter-Fields` header. Empty → 200. ⚠️ refund detection via `amount<0` accepted by sandbox but unverified (no data) — confirm against prod or filter client-side. |
+| `/v3/merchants/{mId}/payments` | GET | ✅ | `{elements:[],href}`. offset/limit pagination. Repeated `?filter=` ANDed. `filter=createdTime>=<ms>&filter=createdTime<=<ms>`; `result=SUCCESS`; `voided=true` valid. Allowed filter fields in `X-Clover-Allowed-Filter-Fields` header. Empty → 200. |
+| `/v3/merchants/{mId}/refunds` | GET | ✅ | `{elements:[],href}`. Refunds are **separate objects** with a positive `amount` (cents) — NOT negative payments. Used by `get_sales_summary` for refund totals (covered by PAYMENTS_R). Standard `createdTime` filter. Sandbox empty. |
 | `/v3/merchants/{mId}/orders/{orderId}/payments` | GET | 🔲 | Payments for a specific order |
 
 ---
