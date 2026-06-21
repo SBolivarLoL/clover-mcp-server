@@ -18,6 +18,7 @@ uv.lock
 !.env.example
 *.json
 !docs/*.json
+!server.json
 
 # token store
 ~/.config/clover-mcp/
