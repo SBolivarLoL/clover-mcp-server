@@ -2,6 +2,8 @@
 
 MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, etc.) read and safe-write access to a Clover merchant's sales, inventory, orders, and customers.
 
+<!-- mcp-name: io.github.SBolivarLoL/clover-mcp -->
+
 > **Status:** v1 candidate — 14 tools, both auth modes, 152 tests. Single-merchant, local (stdio). See [docs/endpoints.md](docs/endpoints.md) for the sandbox-verified endpoint contracts.
 
 > ⚠️ **Independent project — not affiliated with, endorsed by, or sponsored by Clover Network, LLC or Fiserv, Inc.** "Clover" is a trademark of its respective owner and is used here only nominatively to describe interoperability. Provided **as is**, without warranty — see [Legal & disclaimer](#legal--disclaimer).
