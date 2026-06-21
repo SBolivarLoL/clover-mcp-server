@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [0.1.4] — 2026-06-21
 ### Security
 - `scripts/get_sandbox_token.py` no longer prints access/refresh token values
   (CodeQL `py/clear-text-logging-sensitive-data`); they're written only to the
@@ -22,7 +24,7 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   always 0; the paid amount is already included in `gross_sales`. This also drops
   the `ORDERS_R` requirement from `get_sales_summary`.
 
-## [0.1.3] — unreleased
+## [0.1.3] — 2026-06-21
 ### Added
 - Listed on the official MCP Registry (`server.json` + GitHub-OIDC publish step
   in the release workflow). PyPI README carries the `mcp-name` ownership marker.
