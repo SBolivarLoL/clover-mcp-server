@@ -152,18 +152,23 @@ async def verify() -> None:
             ("list_devices", list_devices(client)),
             ("get_top_items", get_top_items(client)),
         ]
+        # Record pass/fail as a plain bool from control flow — never print any
+        # value derived from the response. Tool outputs can carry PII (employee
+        # emails); we only assert the call returned a well-shaped result.
+        outcomes: list[tuple[str, bool]] = []
         for name, coro in checks:
+            ok = True
             try:
                 result = await coro
-                # Print only the structural count — never the response body, which
-                # may carry PII (e.g. employee emails). The point is to confirm the
-                # endpoint returns 200 with the expected shape, not to dump data.
-                count = result.get("count")
-                print(f"  ✓ {name}: 200 OK (count={count})")
-            except CloverAPIError as exc:
-                print(f"  ✗ {name} → HTTP {exc.status_code}")
-            except Exception as exc:  # noqa: BLE001
-                print(f"  ✗ {name} → {type(exc).__name__}")
+                assert isinstance(result, (dict, list))
+            except Exception:  # noqa: BLE001 — any failure is a failed check
+                ok = False
+            outcomes.append((name, ok))
+
+        for name, ok in outcomes:
+            print(f"  {'✓' if ok else '✗'} {name}")
+        passed = sum(1 for _, ok in outcomes if ok)
+        print(f"\n{passed}/{len(outcomes)} v1.1 read tools returned a well-shaped result.")
 
 
 async def cleanup() -> None:
