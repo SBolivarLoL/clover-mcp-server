@@ -1,0 +1,45 @@
+name: Publish to MCP Registry
+
+# Lists the server on the official MCP Registry (metadata only — points at the
+# PyPI package). Version + name come from server.json. Runs on a version tag
+# (after PyPI is live) and can be run manually to update the listing without a
+# new PyPI release. Auth is GitHub OIDC — no tokens stored.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write # MCP Registry GitHub OIDC auth
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Wait for PyPI to expose this version + mcp-name marker
+        run: |
+          VERSION=$(python3 -c "import json;print(json.load(open('server.json'))['version'])")
+          NAME=$(python3 -c "import json;print(json.load(open('server.json'))['name'])")
+          echo "Listing $NAME @ $VERSION"
+          for i in $(seq 1 18); do
+            if curl -fsS "https://pypi.org/pypi/clover-mcp/${VERSION}/json" \
+                 | grep -q "mcp-name: ${NAME}"; then
+              echo "PyPI ${VERSION} is live with the mcp-name marker."; exit 0
+            fi
+            echo "waiting for PyPI propagation ($i)…"; sleep 10
+          done
+          echo "::error::PyPI ${VERSION} not visible with mcp-name after ~3min" >&2; exit 1
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        run: ./mcp-publisher publish
