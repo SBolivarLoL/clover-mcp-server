@@ -122,7 +122,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print(f"\nOpening (or copy manually) the consent URL:\n\n  {AUTHORIZE_URL}\n")
+    print(
+        "\nOpening (or copy manually) the consent page:\n\n"
+        "  https://sandbox.dev.clover.com/oauth/v2/authorize\n"
+    )
     server = http.server.HTTPServer(("localhost", 8080), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     with contextlib.suppress(Exception):
