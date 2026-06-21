@@ -6,7 +6,16 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.1.0] — pending first release
+## [0.1.1] — unreleased
+### Added
+- Legal & disclaimer section: nominative trademark / not-affiliated notice,
+  AS-IS no-warranty statement, and operator responsibilities (Clover terms,
+  data-protection, least-privilege tokens).
+- PyPI publishing from the release workflow via trusted publishing (OIDC).
+### Fixed
+- Release workflow attaches only the wheel + sdist (glob narrowed from `dist/*`).
+
+## [0.1.0] — 2026-06-21 (GitHub release)
 ### Added
 - 11 read tools: `get_merchant_info`, `get_sales_summary`, `list_payments`,
   `list_orders`, `get_order`, `list_open_orders`, `list_items`, `get_item`,

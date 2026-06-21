@@ -2,7 +2,9 @@
 
 MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, etc.) read and safe-write access to a Clover merchant's sales, inventory, orders, and customers.
 
-> **Status:** v1 candidate — 14 tools, both auth modes, 148 tests. Single-merchant, local (stdio). See [docs/endpoints.md](docs/endpoints.md) for the sandbox-verified endpoint contracts.
+> **Status:** v1 candidate — 14 tools, both auth modes, 152 tests. Single-merchant, local (stdio). See [docs/endpoints.md](docs/endpoints.md) for the sandbox-verified endpoint contracts.
+
+> ⚠️ **Independent project — not affiliated with, endorsed by, or sponsored by Clover Network, LLC or Fiserv, Inc.** "Clover" is a trademark of its respective owner and is used here only nominatively to describe interoperability. Provided **as is**, without warranty — see [Legal & disclaimer](#legal--disclaimer).
 
 ## What it can do
 
@@ -154,6 +156,33 @@ mypy src/clover_mcp/
 
 See [SECURITY.md](SECURITY.md) for the vulnerability disclosure policy.
 
+## Legal & disclaimer
+
+> This is not legal advice. The notes below describe the project's intent and the
+> operator's responsibilities.
+
+- **Not affiliated.** This is an independent, community project. It is **not**
+  affiliated with, endorsed by, or sponsored by Clover Network, LLC or Fiserv, Inc.
+  "Clover" and related marks are trademarks of their respective owners and are used
+  here only **nominatively** — to state that this software interoperates with the
+  Clover REST API. No Clover logos or branding are used.
+- **No warranty / no liability.** The software is provided **"AS IS"** under the
+  [MIT License](LICENSE), without warranty of any kind. The authors are not liable
+  for any claim, damage, or loss arising from its use — including incorrect data,
+  unintended writes, downtime, or API changes outside the authors' control.
+- **You operate it; you're responsible.** You run this server with **your own**
+  Clover account and API credentials. You are solely responsible for: complying
+  with Clover's developer/API terms and trademark-usage policy; safeguarding your
+  tokens; and meeting any data-protection (e.g. GDPR/CCPA) and tax obligations for
+  data you access. The write tools **modify live merchant data** — test in the
+  sandbox first and use least-privilege tokens.
+- **No card data, no payments.** The server never handles payment card data (the
+  shaping layer blocks it) and deliberately cannot capture payments, refund, or
+  void. It is **not** a PCI-DSS solution.
+- **Third-party API.** This project only calls Clover's public REST API using the
+  operator's credentials; it bundles no Clover SDK or proprietary code. Clover may
+  change or restrict its API at any time, which may break functionality.
+
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
