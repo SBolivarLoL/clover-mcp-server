@@ -1,16 +1,17 @@
 name: Release
 
-# Tag-triggered. Push a vX.Y.Z tag to build artifacts and publish a GitHub Release.
-# NOTE: this deliberately does NOT publish to PyPI — releases are GitHub-only for
-# now. To enable PyPI later, add a `uv publish` step after the build (ideally with
-# a trusted-publisher / OIDC config). See RELEASING.md.
+# Tag-triggered. Push a vX.Y.Z tag to build artifacts, create a GitHub Release,
+# and publish to PyPI via trusted publishing (OIDC — no token stored in the repo).
+# PyPI publish requires a one-time "trusted publisher" setup on PyPI for this
+# repo + workflow. See RELEASING.md.
 on:
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: write # required to create the GitHub Release
+  contents: write # create the GitHub Release
+  id-token: write # PyPI trusted publishing (OIDC)
 
 jobs:
   release:
@@ -37,6 +38,13 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+      # Requires a PyPI trusted publisher configured for this repo + workflow.
+      # Until that's set up this step fails without affecting the GitHub Release above.
+      - name: Publish to PyPI (trusted publishing)
+        run: uv publish
