@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Fixed
+- `get_sales_summary` refund totals now come from the dedicated `/refunds`
+  endpoint (Clover refunds are separate objects with a positive amount) instead
+  of the incorrect `amount<0` payment heuristic. `net_sales = gross - refunds`.
+### Removed
+- `service_charges_collected` from `get_sales_summary`. Clover exposes an order's
+  service charge only as a percentage (no computed amount), so the old field was
+  always 0; the paid amount is already included in `gross_sales`. This also drops
+  the `ORDERS_R` requirement from `get_sales_summary`.
 
 ## [0.1.3] — unreleased
 ### Added
