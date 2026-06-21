@@ -155,11 +155,15 @@ async def verify() -> None:
         for name, coro in checks:
             try:
                 result = await coro
-                print(f"  ✓ {name}: {json.dumps(result, ensure_ascii=False)[:400]}")
+                # Print only the structural count — never the response body, which
+                # may carry PII (e.g. employee emails). The point is to confirm the
+                # endpoint returns 200 with the expected shape, not to dump data.
+                count = result.get("count")
+                print(f"  ✓ {name}: 200 OK (count={count})")
             except CloverAPIError as exc:
-                print(f"  ✗ {name} → {exc.status_code}: {exc.message}")
+                print(f"  ✗ {name} → HTTP {exc.status_code}")
             except Exception as exc:  # noqa: BLE001
-                print(f"  ✗ {name} → {type(exc).__name__}: {exc}")
+                print(f"  ✗ {name} → {type(exc).__name__}")
 
 
 async def cleanup() -> None:
