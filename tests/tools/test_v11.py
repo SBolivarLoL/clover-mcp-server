@@ -98,6 +98,8 @@ async def test_list_active_shifts_filters_open(
     result = await list_active_shifts(client)
     assert result["count"] == 1
     assert result["shifts"][0]["id"] == "S2"
+    # name injected from the iterated employee (shift payload carries only id)
+    assert result["shifts"][0]["employee_name"] == "Bob"
 
 
 @pytest.mark.asyncio
