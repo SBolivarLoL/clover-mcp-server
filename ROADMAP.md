@@ -41,10 +41,13 @@ Housekeeping for v1.1:
 - [x] Add startup permission probe for `EMPLOYEES_R` (optional — warns, never blocks startup).
 - [x] No customer/item/employee **updates** beyond v1 — still deliberately deferred.
 
-Follow-up owed (not blocking):
-- [ ] Live sandbox shape-verification for the 9 new endpoints (currently 🟡 in
-      `docs/endpoints.md` — implemented from API docs + mock-tested). Confirm
-      `tax_rates.rate` units and whether a merchant-level `/shifts` list exists.
+Follow-up:
+- [x] Live sandbox shape-verification for the 9 new endpoints — _done 2026-06-21
+      (PR #15)._ All 9 verified ✅ in `docs/endpoints.md` via `scripts/seed_sandbox.py`.
+      Confirmed: `tax_rates.rate` unit is `rate/100000` (10_000_000 == 100%); there
+      is **no** merchant-level `/shifts` (listings iterate employees); the shift
+      payload carries `employee.id` only, so tools inject the name; `list_devices`
+      is empty on a sandbox with no provisioned hardware.
 
 ---
 
