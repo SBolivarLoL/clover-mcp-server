@@ -6,7 +6,13 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.1.1] — unreleased
+## [0.1.2] — unreleased
+### Fixed
+- `__version__` is now derived from installed package metadata
+  (`importlib.metadata`) instead of a hardcoded constant, so it can never drift
+  from `pyproject.toml` again. (0.1.1 shipped reporting `0.1.0`.)
+
+## [0.1.1] — 2026-06-21
 ### Added
 - Legal & disclaimer section: nominative trademark / not-affiliated notice,
   AS-IS no-warranty statement, and operator responsibilities (Clover terms,
