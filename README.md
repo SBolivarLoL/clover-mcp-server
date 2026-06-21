@@ -27,6 +27,11 @@ MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, 
 | `list_payments` | read | SUCCESS payments in a window |
 | `list_orders` / `get_order` / `list_open_orders` | read | order history + detail |
 | `list_items` / `get_item` / `list_low_stock_items` | read | inventory + stock |
+| `list_categories` / `list_modifiers` / `list_taxes` | read | catalog structure (v1.1) |
+| `list_devices` | read | Clover terminals (v1.1) |
+| `get_top_items` | read | best-sellers by units in a window (v1.1) |
+| `list_employees` / `get_employee` | read | PINs never returned (v1.1, `EMPLOYEES_R`) |
+| `list_shifts` / `list_active_shifts` | read | clock-in/out records (v1.1, `EMPLOYEES_R`) |
 | `search_customers` / `get_customer` | read | cards never returned |
 | `create_customer` | write | additive; idempotency dup-check + `dry_run` |
 | `set_item_price_cents` | write | optimistic-lock pre-check, bounds, `dry_run` |
@@ -126,12 +131,15 @@ Your token must have the following Clover permission scopes:
 | `MERCHANT_R` | `get_merchant_info` |
 | `ORDERS_R` | `list_orders`, `get_order`, `list_open_orders` |
 | `PAYMENTS_R` | `list_payments`, `get_sales_summary` (payments + refunds) |
-| `INVENTORY_R` | `list_items`, `get_item`, `list_low_stock_items` |
+| `ORDERS_R` | …also `get_top_items` |
+| `INVENTORY_R` | `list_items`, `get_item`, `list_low_stock_items`, `list_categories`, `list_modifiers`, `list_taxes` |
 | `INVENTORY_W` | `set_item_price_cents`, `set_item_stock_quantity` |
 | `CUSTOMERS_R` | `search_customers`, `get_customer` |
 | `CUSTOMERS_W` | `create_customer` |
+| `EMPLOYEES_R` | `list_employees`, `get_employee`, `list_shifts`, `list_active_shifts` (optional) |
+| `MERCHANT_R` | …also `list_devices` |
 
-Read scopes (`*_R`) are probed at startup; the server reports any missing ones and exits. Write scopes (`*_W`) are **not** probed (a probe would mutate data) — a missing write scope surfaces as a 403 the first time you call that tool. Permission changes on a Clover app require the merchant to reinstall the app.
+Read scopes (`*_R`) are probed at startup; the server reports any missing ones and exits — **except `EMPLOYEES_R`, which is optional**: if it's not granted the server only warns and the employee/shift tools return a 403 when called. Write scopes (`*_W`) are **not** probed (a probe would mutate data) — a missing write scope surfaces as a 403 the first time you call that tool. Permission changes on a Clover app require the merchant to reinstall the app.
 
 ## Sales summary semantics
 
