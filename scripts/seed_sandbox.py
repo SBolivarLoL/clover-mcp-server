@@ -140,35 +140,35 @@ async def verify() -> None:
     from clover_mcp.tools.merchant import list_devices
     from clover_mcp.tools.reporting import get_top_items
 
+    async def ok(coro: Any) -> bool:
+        """True if the tool call returned a well-shaped result. The response is
+        consumed here and never returned/stored — so no value derived from it
+        (which may carry PII) can reach a log sink."""
+        try:
+            return isinstance(await coro, (dict, list))
+        except Exception:  # noqa: BLE001 — any failure is a failed check
+            return False
+
     print("Verifying v1.1 read tools against live sandbox:\n")
     async with client:
-        checks: list[tuple[str, Any]] = [
-            ("list_taxes", list_taxes(client)),
-            ("list_categories", list_categories(client)),
-            ("list_modifiers", list_modifiers(client)),
-            ("list_employees", list_employees(client)),
-            ("list_shifts", list_shifts(client)),
-            ("list_active_shifts", list_active_shifts(client)),
-            ("list_devices", list_devices(client)),
-            ("get_top_items", get_top_items(client)),
+        # Run each call, keeping only a (constant label, plain bool) pair. The
+        # coroutine is never co-located with the label in a container, so its
+        # taint can't flow to the print below.
+        results: list[tuple[str, bool]] = [
+            ("list_taxes", await ok(list_taxes(client))),
+            ("list_categories", await ok(list_categories(client))),
+            ("list_modifiers", await ok(list_modifiers(client))),
+            ("list_employees", await ok(list_employees(client))),
+            ("list_shifts", await ok(list_shifts(client))),
+            ("list_active_shifts", await ok(list_active_shifts(client))),
+            ("list_devices", await ok(list_devices(client))),
+            ("get_top_items", await ok(get_top_items(client))),
         ]
-        # Record pass/fail as a plain bool from control flow — never print any
-        # value derived from the response. Tool outputs can carry PII (employee
-        # emails); we only assert the call returned a well-shaped result.
-        outcomes: list[tuple[str, bool]] = []
-        for name, coro in checks:
-            ok = True
-            try:
-                result = await coro
-                assert isinstance(result, (dict, list))
-            except Exception:  # noqa: BLE001 — any failure is a failed check
-                ok = False
-            outcomes.append((name, ok))
 
-        for name, ok in outcomes:
-            print(f"  {'✓' if ok else '✗'} {name}")
-        passed = sum(1 for _, ok in outcomes if ok)
-        print(f"\n{passed}/{len(outcomes)} v1.1 read tools returned a well-shaped result.")
+    for label, passed in results:
+        print(f"  {'✓' if passed else '✗'} {label}")
+    n_pass = sum(1 for _, p in results if p)
+    print(f"\n{n_pass}/{len(results)} v1.1 read tools returned a well-shaped result.")
 
 
 async def cleanup() -> None:
