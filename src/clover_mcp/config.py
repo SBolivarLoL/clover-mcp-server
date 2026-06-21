@@ -69,7 +69,7 @@ def load_config() -> Config:
         return os.getenv(name, default).strip()
 
     merchant_id = require("CLOVER_MERCHANT_ID")
-    access_token = require("CLOVER_ACCESS_TOKEN")
+    access_token = optional("CLOVER_ACCESS_TOKEN")
     region = optional("CLOVER_REGION", "na")
     sandbox = optional("CLOVER_SANDBOX", "false").lower() in ("1", "true", "yes")
     auth_mode = optional("CLOVER_AUTH_MODE", "token").lower()
@@ -80,19 +80,33 @@ def load_config() -> Config:
     refresh_token = optional("CLOVER_REFRESH_TOKEN")
     oauth_client_id = optional("CLOVER_OAUTH_CLIENT_ID")
     oauth_client_secret = optional("CLOVER_OAUTH_CLIENT_SECRET")
+    token_store = Path(
+        optional("CLOVER_TOKEN_STORE", "~/.config/clover-mcp/tokens.json")
+    ).expanduser()
 
-    if auth_mode == "oauth_refresh":
+    if auth_mode == "token":
+        if not access_token:
+            errors.append("  • CLOVER_ACCESS_TOKEN is required when CLOVER_AUTH_MODE=token")
+    elif auth_mode == "oauth_refresh":
+        # Tokens may live in the 0600 token store (written by
+        # scripts/get_sandbox_token.py) rather than env — so they never need to be
+        # printed or pasted. Only require what the store can't supply.
+        from clover_mcp.auth import TokenStore  # local import avoids any import cycle
+
+        stored = TokenStore(token_store).load()
+        if not access_token and not stored.get("access_token"):
+            errors.append(
+                "  • CLOVER_ACCESS_TOKEN is required (or run scripts/get_sandbox_token.py "
+                "to populate the token store)"
+            )
+        if not refresh_token and not stored.get("refresh_token"):
+            errors.append("  • CLOVER_REFRESH_TOKEN is required (or populate the token store)")
         for name, val in [
-            ("CLOVER_REFRESH_TOKEN", refresh_token),
             ("CLOVER_OAUTH_CLIENT_ID", oauth_client_id),
             ("CLOVER_OAUTH_CLIENT_SECRET", oauth_client_secret),
         ]:
             if not val:
                 errors.append(f"  • {name} is required when CLOVER_AUTH_MODE=oauth_refresh")
-
-    token_store = Path(
-        optional("CLOVER_TOKEN_STORE", "~/.config/clover-mcp/tokens.json")
-    ).expanduser()
 
     # validate region (triggers ValueError we convert to config error)
     try:
