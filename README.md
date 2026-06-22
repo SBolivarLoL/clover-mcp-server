@@ -143,13 +143,17 @@ Read scopes (`*_R`) are probed at startup; the server reports any missing ones a
 
 ## Remote / hosted (v2)
 
-By default this runs locally over stdio for a single merchant. It can also run as
-a network-reachable HTTP server with OAuth, serving multiple merchants — set
-`CLOVER_TRANSPORT=http` and configure an Identity Provider. It acts as an OAuth
-2.1 **resource server** (validates IdP-issued JWTs, publishes Protected Resource
-Metadata per RFC 9728) and routes each request to the merchant named in the
-token. See **[docs/DEPLOY.md](docs/DEPLOY.md)**. The server refuses to start in
-http mode without an IdP configured — a remote MCP server must not run open.
+By default this runs locally over stdio for a single merchant. To run it remotely:
+
+- **FastMCP Cloud / Horizon (easiest):** deploy with entrypoint `server.py:mcp`,
+  enable the platform's built-in auth, and set single-merchant Clover env vars.
+  The platform handles OAuth, HTTPS, and transport — no IdP setup.
+- **Self-host:** use `server.py:create_server`, which makes clover-mcp an OAuth
+  2.1 **resource server** (validates your IdP's JWTs, publishes Protected Resource
+  Metadata per RFC 9728, routes by token claim for multi-merchant) and **refuses
+  to start without an IdP** so it can't run open.
+
+Full setup for both in **[docs/DEPLOY.md](docs/DEPLOY.md)**.
 
 ## Sales summary semantics
 

@@ -1,13 +1,64 @@
 # Remote / hosted deployment (v2)
 
 The default install is **local stdio, single merchant** — nothing here is
-required for that. This guide is for running clover-mcp as a **network-reachable
-HTTP server** that multiple merchants connect to, with OAuth.
+required for that. There are two ways to run it remotely:
 
-clover-mcp is an OAuth 2.1 **resource server**: it validates bearer tokens
-issued by *your* Identity Provider and never sees user credentials. FastMCP
-handles token validation and serves Protected Resource Metadata (RFC 9728);
-this server adds per-merchant routing on top.
+- **A. FastMCP Cloud / Horizon (recommended)** — the platform handles OAuth,
+  HTTPS, and transport for you. Your server just exposes the tools. **Use this
+  unless you need self-hosting.**
+- **B. Self-host with your own IdP** — you run the HTTP server and clover-mcp
+  acts as an OAuth 2.1 resource server validating your IdP's tokens. More moving
+  parts; only needed off-platform.
+
+---
+
+## A. FastMCP Cloud / Horizon (managed auth)
+
+Horizon runs `fastmcp run <entrypoint>` and provides **built-in OAuth** — enable
+authentication during setup so only authenticated users in your org can connect.
+You do **not** configure an IdP and you do **not** set any `CLOVER_AUTH_*`,
+`CLOVER_TRANSPORT`, or `CLOVER_PUBLIC_URL` vars — the platform owns auth/transport.
+
+```
+Entrypoint:   server.py:mcp        (or src/clover_mcp/server.py:mcp)
+Requirements: pyproject.toml
+```
+
+> ⚠️ Do **not** use `server.py:create_server` on Horizon, and do **not** set
+> `CLOVER_TRANSPORT=http`. Those build *our own* resource-server auth, which
+> requires an IdP you don't have on Horizon — the deploy would fail. `create_server`
+> is only for self-hosting (section B).
+
+> ⚠️ **Turn Horizon's authentication ON.** Raw MCP-over-HTTP is public by default;
+> the platform only protects the endpoint if you enable its auth. After deploy,
+> verify an unauthenticated request to `https://<your>.fastmcp.app/mcp` is rejected.
+
+**Environment Variables** (single merchant — your own business):
+
+```
+CLOVER_MERCHANT_ID=<your Clover merchant id>
+CLOVER_ACCESS_TOKEN=<long-lived Clover API token>
+CLOVER_AUTH_MODE=token
+CLOVER_REGION=na          # na | eu | la
+CLOVER_SANDBOX=false      # true while testing against the sandbox
+```
+
+> **Ephemeral filesystem.** Horizon containers don't persist disk between
+> restarts. Prefer `CLOVER_AUTH_MODE=token` (a long-lived token, no disk needed).
+> `oauth_refresh` rotation writes a single-use token to disk that a restart would
+> lose. True multi-tenant (many merchants behind one deploy) needs a persistent
+> store and is phase-2 — Horizon's auth controls *who connects*, not *which
+> merchant*, so one deploy = one merchant for now.
+
+---
+
+## B. Self-host with your own IdP
+
+clover-mcp is an OAuth 2.1 **resource server**: it validates bearer tokens issued
+by *your* Identity Provider and never sees user credentials. FastMCP handles token
+validation and serves Protected Resource Metadata (RFC 9728); this server adds
+per-merchant routing on top. Use entrypoint `server.py:create_server` (fail-closed
+— refuses to start without an IdP).
 
 ```
 MCP client ──token──> clover-mcp (resource server) ──validates JWT──> your IdP (JWKS)
@@ -15,41 +66,7 @@ MCP client ──token──> clover-mcp (resource server) ──validates JWT�
                             └─ merchant id from token claim ─> merchant store ─> Clover API
 ```
 
-## FastMCP Cloud (horizon)
-
-FastMCP Cloud runs `fastmcp run <entrypoint>` and serves your server over HTTP
-itself. Use the **fail-closed factory**:
-
-```
-Entrypoint:  server.py:create_server
-```
-
-`create_server` (repo-root [server.py](../server.py) → `clover_mcp.server.create_server`)
-always builds the OAuth resource server and **refuses to start without an IdP**,
-so a managed HTTP deploy can never serve unauthenticated — even if you forget
-`CLOVER_TRANSPORT`. (The bare `server.py:mcp` object also works but is only
-authenticated when `CLOVER_TRANSPORT=http` is set, so it's easier to misconfigure.)
-
-Set the env vars below in **Advanced Configuration**. `CLOVER_PUBLIC_URL` is the
-URL FastMCP Cloud shows you (e.g. `https://clover.fastmcp.app`).
-
-> **Ephemeral filesystem.** FastMCP Cloud containers don't persist disk between
-> restarts. That affects two things:
-> - **Multi-merchant store**: a flat-file `CLOVER_MERCHANT_STORE` won't survive
->   restarts and can't be written to at runtime. For a hosted multi-tenant deploy
->   you need a persistent store (DB / secret manager) — see phase-2 in the ROADMAP.
-> - **OAuth refresh rotation** writes a new single-use refresh token to disk; on
->   an ephemeral host that's lost on restart. For the first hosted deploy prefer
->   **single-merchant + `CLOVER_AUTH_MODE=token`** with a long-lived Clover token
->   (no rotation, no disk needed), or keep `oauth_refresh` knowing a restart needs
->   re-seeding.
-
-**Recommended first hosted deploy** (single merchant, simplest + secure): set
-`CLOVER_TRANSPORT=http`, the three auth vars, `CLOVER_PUBLIC_URL`, plus
-`CLOVER_MERCHANT_ID` and a long-lived `CLOVER_ACCESS_TOKEN` (`CLOVER_AUTH_MODE=token`).
-Leave `CLOVER_MULTI_MERCHANT` unset. Add multi-tenant once a persistent store exists.
-
-## What you must decide / provide
+### What you must decide / provide
 
 1. **A host** with a public HTTPS URL (Fly.io, Render, Cloud Run, Railway, a
    VPS behind a TLS proxy…). That URL is `CLOVER_PUBLIC_URL` — the OAuth
