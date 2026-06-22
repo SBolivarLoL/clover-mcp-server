@@ -4,7 +4,7 @@ MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, 
 
 <!-- mcp-name: io.github.SBolivarLoL/clover-mcp -->
 
-> **Status:** v1 candidate — 14 tools, both auth modes, 152 tests. Single-merchant, local (stdio). See [docs/endpoints.md](docs/endpoints.md) for the sandbox-verified endpoint contracts.
+> **Status:** v0.2 — 23 tools, both auth modes, 198 tests. Runs locally (stdio, single merchant) or remotely over HTTP with OAuth (see [docs/DEPLOY.md](docs/DEPLOY.md)). Endpoint contracts are sandbox-verified in [docs/endpoints.md](docs/endpoints.md).
 
 > ⚠️ **Independent project — not affiliated with, endorsed by, or sponsored by Clover Network, LLC or Fiserv, Inc.** "Clover" is a trademark of its respective owner and is used here only nominatively to describe interoperability. Provided **as is**, without warranty — see [Legal & disclaimer](#legal--disclaimer).
 
@@ -16,7 +16,9 @@ MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, 
 - Customer search and creation
 - Safe writes: update item prices, set stock quantities, create customers
 
-**What it cannot do (by design):** process refunds, capture payments, void charges, delete records. Those stay in the Clover dashboard. Employee/shift reporting and a multi-merchant hosted mode are planned (v1.1 / v2).
+- Employee, shift, category, modifier, tax, and device lookups; best-selling items
+
+**What it cannot do (by design):** process refunds, capture payments, void charges, delete records. Those stay in the Clover dashboard. Multi-tenant hosted mode (many merchants behind one deploy) needs a persistent credential store — planned for v2 phase 2.
 
 ## Tools
 

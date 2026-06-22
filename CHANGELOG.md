@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [0.2.0] — 2026-06-22
 ### Changed
 - Startup permission self-check is now **non-fatal**: it logs warnings instead of
   calling `sys.exit(1)` on a bad token / missing scope / config error, so a hosted
