@@ -56,9 +56,12 @@ def build_auth_provider(config: Config) -> Any | None:
         audience=config.auth_audience or None,
         required_scopes=scopes,
     )
+    # Pydantic coerces the issuer str into AnyHttpUrl at runtime; a list[Any]
+    # local keeps mypy happy without a type-ignore.
+    authorization_servers: list[Any] = [config.auth_issuer]
     return RemoteAuthProvider(
         token_verifier=verifier,
-        authorization_servers=[config.auth_issuer],
+        authorization_servers=authorization_servers,
         base_url=config.public_url,
         scopes_supported=scopes,
         resource_name="Clover POS MCP",
