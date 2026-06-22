@@ -139,10 +139,20 @@ def _get_client() -> CloverClient:
 
 
 async def _check_permissions() -> None:
-    """Probe one read per required permission category and report failures."""
+    """Best-effort startup self-check: probe one read per required permission and
+    log problems. It NEVER crashes the process — a hosted platform's pre-flight
+    must be able to start the server, and upstream credential/scope/network issues
+    surface as 401/403 on the first tool call instead of killing startup.
+    """
+    try:
+        config = _get_config()
+    except Exception as exc:  # noqa: BLE001 — bad/absent env: warn, still start
+        print(f"WARNING: could not load configuration at startup: {exc}", file=sys.stderr)
+        return
+
     # Multi-merchant has no single startup merchant — credentials and scopes are
     # resolved (and surfaced as 403s) per request instead.
-    if _get_config().multi_merchant:
+    if config.multi_merchant:
         print(
             "Starting in multi-merchant http mode; per-merchant permission checks "
             "happen on first use.",
@@ -150,7 +160,12 @@ async def _check_permissions() -> None:
         )
         return
 
-    client = _get_client()
+    try:
+        client = _get_client()
+    except Exception as exc:  # noqa: BLE001 — surface at call time, don't crash startup
+        print(f"WARNING: could not build Clover client at startup: {exc}", file=sys.stderr)
+        return
+
     missing: list[str] = []
 
     # Required scopes gate startup. EMPLOYEES_R is optional (v1.1 employee/shift
@@ -179,10 +194,11 @@ async def _check_permissions() -> None:
                     )
             elif exc.status_code == 401:
                 print(
-                    "ERROR: Invalid or expired access token. Check CLOVER_ACCESS_TOKEN.",
+                    "WARNING: Invalid or expired Clover access token — tool calls will "
+                    "fail until CLOVER_ACCESS_TOKEN is fixed.",
                     file=sys.stderr,
                 )
-                sys.exit(1)
+                return
             else:
                 # Transient (5xx / rate limit): don't block startup — tools surface it later.
                 print(
@@ -192,15 +208,14 @@ async def _check_permissions() -> None:
             print(f"WARNING: permission probe for {perm} skipped: {exc}", file=sys.stderr)
 
     if missing:
-        print("ERROR: Missing required Clover permissions:", file=sys.stderr)
+        print("WARNING: Missing required Clover permissions:", file=sys.stderr)
         for m in missing:
             print(m, file=sys.stderr)
         print(
-            "Grant these permissions via the Clover Developer Dashboard "
-            "and reinstall the app on the merchant account.",
+            "Grant these permissions via the Clover Developer Dashboard and reinstall "
+            "the app on the merchant account; affected tools will return 403 until then.",
             file=sys.stderr,
         )
-        sys.exit(1)
 
 
 # ── Tool behaviour annotations ────────────────────────────────────────────────

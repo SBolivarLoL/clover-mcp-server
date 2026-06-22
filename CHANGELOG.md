@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Changed
+- Startup permission self-check is now **non-fatal**: it logs warnings instead of
+  calling `sys.exit(1)` on a bad token / missing scope / config error, so a hosted
+  platform's pre-flight can always start the server (errors surface as 401/403 on
+  the first tool call). Required for FastMCP Cloud / Horizon deploys.
+- Docs: clarified FastMCP Cloud (managed auth — use `server.py:mcp`, no IdP) vs
+  self-host (`server.py:create_server` with your own IdP). The earlier guidance
+  to use `create_server` / `CLOVER_TRANSPORT=http` on Horizon was wrong and made
+  the server fail to start.
+
 ### Added — v2 remote/hosted (phase 1, opt-in; stdio single-merchant unchanged)
 - **HTTP transport**: `CLOVER_TRANSPORT=http` runs a network-reachable Streamable
   HTTP server (host/port/path configurable).
