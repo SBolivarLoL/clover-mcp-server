@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Added — multi-tenant (v2 phase 2)
+- Map each authenticated request to its own Clover merchant by token identity,
+  so one deployment can serve many merchants. The tenant map loads from
+  `CLOVER_TENANTS_JSON` (an env var — persists on platforms with ephemeral disk
+  like FastMCP Cloud) overlaid on the optional `CLOVER_MERCHANT_STORE` file.
+  Each tenant entry holds a merchant id + permanent token (no refresh-to-disk).
+- `CLOVER_TENANT_CLAIM` selects which validated-token claim keys the tenant map
+  (defaults to the `email` claim, then the subject — right for Horizon's user auth).
+- New **`whoami`** tool: returns the authenticated identity, available claim
+  *names* (no values), scopes, and whether a tenant is mapped — so you can
+  discover what identity your platform provides and key the map correctly.
+- `CLOVER_MULTI_MERCHANT=true` no longer requires `CLOVER_TRANSPORT=http`; it
+  works under a managed platform's auth too, and fails closed (no tenant → no
+  data) if no authenticated identity reaches the server.
+- docs/DEPLOY.md: step-by-step multi-tenant setup on Horizon.
 
 ## [0.2.0] — 2026-06-22
 ### Changed

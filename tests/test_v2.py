@@ -10,10 +10,10 @@ import pytest
 
 from clover_mcp.config import Config, load_config
 from clover_mcp.remote import (
-    MerchantStore,
     build_auth_provider,
-    config_for_merchant,
-    extract_merchant_id,
+    load_tenants,
+    tenant_config,
+    tenant_key,
 )
 
 _VARS = [
@@ -37,6 +37,8 @@ _VARS = [
     "CLOVER_AUTH_SCOPES",
     "CLOVER_MERCHANT_CLAIM",
     "CLOVER_MERCHANT_STORE",
+    "CLOVER_TENANT_CLAIM",
+    "CLOVER_TENANTS_JSON",
 ]
 
 
@@ -84,14 +86,16 @@ def test_http_transport_parsed(clean_env: pytest.MonkeyPatch) -> None:
     assert cfg.http_port == 9000
 
 
-def test_multi_merchant_requires_http(clean_env: pytest.MonkeyPatch) -> None:
-    clean_env.setenv("CLOVER_MULTI_MERCHANT", "true")  # but transport stays stdio
-    with pytest.raises(RuntimeError, match="requires CLOVER_TRANSPORT=http"):
-        load_config()
+def test_multi_merchant_allowed_on_default_transport(clean_env: pytest.MonkeyPatch) -> None:
+    # Managed platforms (Horizon) provide auth/transport themselves, so
+    # multi_merchant must be allowed with CLOVER_TRANSPORT unset.
+    clean_env.setenv("CLOVER_MULTI_MERCHANT", "true")
+    cfg = load_config()
+    assert cfg.multi_merchant is True
+    assert cfg.transport == "stdio"
 
 
 def test_multi_merchant_drops_merchant_id_requirement(clean_env: pytest.MonkeyPatch) -> None:
-    clean_env.setenv("CLOVER_TRANSPORT", "http")
     clean_env.setenv("CLOVER_MULTI_MERCHANT", "true")
     # No CLOVER_MERCHANT_ID / CLOVER_ACCESS_TOKEN — must still load.
     cfg = load_config()
@@ -184,47 +188,53 @@ def test_http_app_serves_protected_resource_metadata() -> None:
     assert any("oauth-protected-resource" in p for p in paths)
 
 
-# ── merchant resolution ───────────────────────────────────────────────────────
+# ── multi-tenant resolution ───────────────────────────────────────────────────
 
 
-def test_extract_merchant_id_prefers_claim() -> None:
-    assert extract_merchant_id({"clover_merchant_id": "M9"}, "sub1", "clover_merchant_id") == "M9"
-
-
-def test_extract_merchant_id_falls_back_to_subject() -> None:
-    assert extract_merchant_id({}, "MSUB", "clover_merchant_id") == "MSUB"
-
-
-def test_extract_merchant_id_raises_when_absent() -> None:
-    with pytest.raises(PermissionError, match="no merchant id"):
-        extract_merchant_id({}, None, "clover_merchant_id")
-
-
-def test_merchant_store_get(tmp_path: Path) -> None:
-    store_path = tmp_path / "merchants.json"
-    store_path.write_text(json.dumps({"M1": {"access_token": "a", "refresh_token": "r"}}))
-    store = MerchantStore(store_path)
-    assert store.get("M1") == {"access_token": "a", "refresh_token": "r"}
-    assert store.get("M2") is None
-
-
-def test_config_for_merchant_builds_scoped_config(tmp_path: Path) -> None:
-    store_path = tmp_path / "merchants.json"
-    store_path.write_text(
-        json.dumps({"M1": {"access_token": "a1", "refresh_token": "r1", "sandbox": True}})
+def test_tenant_key_uses_configured_claim() -> None:
+    assert (
+        tenant_key({"clover_merchant_id": "M9", "email": "x@y.z"}, "sub1", "clover_merchant_id")
+        == "M9"
     )
-    base = _base_config(transport="http", multi_merchant=True, merchant_store=store_path)
-    scoped = config_for_merchant(base, "M1")
+
+
+def test_tenant_key_defaults_to_email_then_subject() -> None:
+    assert tenant_key({"email": "a@b.c"}, "sub1", "") == "a@b.c"
+    assert tenant_key({}, "SUBONLY", "") == "SUBONLY"
+
+
+def test_tenant_key_raises_when_absent() -> None:
+    with pytest.raises(PermissionError, match="no tenant identity"):
+        tenant_key({}, None, "")
+
+
+def test_load_tenants_from_env_overrides_file(
+    tmp_path: Path, clean_env: pytest.MonkeyPatch
+) -> None:
+    store = tmp_path / "merchants.json"
+    store.write_text(json.dumps({"a@b.c": {"merchant_id": "FILE"}}))
+    clean_env.setenv("CLOVER_TENANTS_JSON", json.dumps({"a@b.c": {"merchant_id": "ENV"}}))
+    base = _base_config(merchant_store=store)
+    tenants = load_tenants(base)
+    assert tenants["a@b.c"]["merchant_id"] == "ENV"  # env wins
+
+
+def test_load_tenants_bad_env_json_raises(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("CLOVER_TENANTS_JSON", "{not json")
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        load_tenants(_base_config())
+
+
+def test_tenant_config_builds_scoped_single_merchant() -> None:
+    tenants = {"a@b.c": {"merchant_id": "M1", "access_token": "tok1", "sandbox": True}}
+    scoped = tenant_config(_base_config(region="na"), tenants, "a@b.c")
     assert scoped.merchant_id == "M1"
-    assert scoped.access_token == "a1"
-    assert scoped.refresh_token == "r1"
-    assert scoped.multi_merchant is False  # per-merchant config is single
-    assert scoped.token_store == tmp_path / "tokens-M1.json"  # isolated rotation
+    assert scoped.access_token == "tok1"
+    assert scoped.auth_mode == "token"  # tenants default to permanent tokens
+    assert scoped.sandbox is True
+    assert scoped.multi_merchant is False
 
 
-def test_config_for_merchant_unprovisioned_raises(tmp_path: Path) -> None:
-    base = _base_config(
-        transport="http", multi_merchant=True, merchant_store=tmp_path / "absent.json"
-    )
-    with pytest.raises(PermissionError, match="not provisioned"):
-        config_for_merchant(base, "GHOST")
+def test_tenant_config_unprovisioned_raises() -> None:
+    with pytest.raises(PermissionError, match="No Clover merchant provisioned"):
+        tenant_config(_base_config(), {}, "ghost@nowhere")

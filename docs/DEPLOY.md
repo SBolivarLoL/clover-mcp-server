@@ -44,9 +44,40 @@ CLOVER_SANDBOX=false      # true while testing against the sandbox
 
 > **Ephemeral filesystem.** Horizon containers don't persist disk between
 > restarts. Prefer `CLOVER_AUTH_MODE=token` (a long-lived token, no disk needed).
-> True multi-tenant (many merchants behind one deploy) needs a persistent store
-> and is phase-2 — Horizon's auth controls *who connects*, not *which merchant*,
-> so one deploy = one merchant for now.
+
+### Multi-tenant on Horizon (many merchants, one deploy)
+
+Horizon's auth identifies the *user* who connects, not a Clover merchant — so
+multi-tenant works by **mapping each authenticated user → their Clover merchant**.
+The map lives in an **env var** (Horizon env survives restarts; the disk doesn't),
+and each merchant uses a **permanent API token** (no refresh-to-disk needed).
+
+**Step 1 — discover the identity Horizon gives you.** Deploy with:
+```
+CLOVER_MULTI_MERCHANT=true
+CLOVER_TENANTS_JSON={}
+```
+Connect (Inspector/client) and call the **`whoami`** tool. It returns the
+authenticated identity and the *names* of available claims (no secrets), e.g.:
+```json
+{ "authenticated": true, "subject": "...", "claim_keys": ["email","sub",...],
+  "tenant_key_source": "email→subject", "resolved_tenant_key": "you@store.com" }
+```
+That `resolved_tenant_key` is what you key the tenant map on. If you'd rather key
+on a different claim, set `CLOVER_TENANT_CLAIM=<claim_name>`.
+
+**Step 2 — provide the tenant map.** Set `CLOVER_TENANTS_JSON` to a JSON object
+keyed by that identity, each entry holding the merchant's **permanent** token:
+```
+CLOVER_TENANTS_JSON={"you@store.com":{"merchant_id":"ABC123","access_token":"<permanent>","sandbox":false,"region":"na"},"other@store.com":{"merchant_id":"XYZ789","access_token":"<permanent>"}}
+```
+Redeploy. Each authenticated user now transparently gets *their* merchant's data;
+an unmapped user is refused (fail-closed). Re-run `whoami` to confirm
+`tenant_provisioned: true`.
+
+> Don't set `CLOVER_TRANSPORT` or `CLOVER_AUTH_*` for this — Horizon owns auth.
+> A flat env blob is fine for a handful of merchants; for many, swap `load_tenants`
+> in `remote.py` for a database/secret-manager lookup (same `{key: entry}` shape).
 
 ---
 

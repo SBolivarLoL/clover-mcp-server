@@ -62,6 +62,9 @@ class Config:
     # Which validated-token claim carries the Clover merchant id (multi-merchant).
     merchant_claim: str = "clover_merchant_id"
     merchant_store: Path = Path("~/.config/clover-mcp/merchants.json")
+    # Multi-tenant: the token claim whose value keys the tenant map. Empty → fall
+    # back to the `email` claim, then the subject (right for Horizon's user auth).
+    tenant_claim: str = ""
     base_url: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -93,8 +96,11 @@ def load_config() -> Config:
 
     if transport not in ("stdio", "http"):
         errors.append(f"  • CLOVER_TRANSPORT must be 'stdio' or 'http', got {transport!r}")
-    if multi_merchant and transport != "http":
-        errors.append("  • CLOVER_MULTI_MERCHANT=true requires CLOVER_TRANSPORT=http")
+    # multi_merchant routes by the authenticated request's identity, so it needs an
+    # auth layer — either ours (CLOVER_TRANSPORT=http + IdP) or a managed platform
+    # like FastMCP Cloud / Horizon (which provides auth even with transport unset).
+    # If no token reaches the server it fails closed per request (no tenant → no
+    # data), so it's safe on any transport; we don't gate it here.
 
     # In multi-merchant mode the merchant id and Clover token come from the
     # validated request token + per-merchant store, not from these env vars.
@@ -181,4 +187,5 @@ def load_config() -> Config:
         public_url=optional("CLOVER_PUBLIC_URL"),
         merchant_claim=optional("CLOVER_MERCHANT_CLAIM", "clover_merchant_id"),
         merchant_store=merchant_store,
+        tenant_claim=optional("CLOVER_TENANT_CLAIM"),
     )

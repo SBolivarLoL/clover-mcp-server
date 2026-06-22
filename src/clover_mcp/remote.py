@@ -5,16 +5,18 @@ This is the glue around FastMCP's built-in auth. FastMCP acts as an OAuth 2.1
 Server (the operator's IdP) and auto-serves Protected Resource Metadata
 (RFC 9728). We never see user credentials and issue no tokens ourselves.
 
-In multi-merchant mode each request's validated token carries the Clover
-merchant id (in a configurable claim); we look that merchant's Clover
-credentials up in a per-merchant store and build a request-scoped client.
+In multi-tenant mode each request is mapped to one Clover merchant by the
+authenticated identity in its validated token (for a managed platform like
+FastMCP Cloud / Horizon that's the user's email/subject, not a merchant id).
+That identity keys a tenant map (env blob or file) holding the merchant's
+credentials, from which we build a request-scoped client.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import json
-from pathlib import Path
+import os
 from typing import Any
 
 from clover_mcp.config import Config
@@ -68,77 +70,128 @@ def build_auth_provider(config: Config) -> Any | None:
     )
 
 
-class MerchantStore:
-    """Read-only view of per-merchant Clover credentials, keyed by merchant id.
+# ── Multi-tenant (phase 2) ────────────────────────────────────────────────────
+# A "tenant" is one authenticated principal mapped to one Clover merchant + its
+# credentials. The tenant map is keyed by a value pulled from the request's
+# validated token — for FastMCP Cloud / Horizon that's the *user* identity
+# (email / subject), since the platform authenticates org users, not merchants.
+#
+# The map is loaded from (in increasing precedence):
+#   1. CLOVER_MERCHANT_STORE — a JSON file (self-host, where disk persists)
+#   2. CLOVER_TENANTS_JSON   — a JSON blob in an env var (Horizon: env survives
+#      restarts even though the filesystem does not)
+# Each entry: {"merchant_id", "access_token", "auth_mode"?, "refresh_token"?,
+#              "region"?, "sandbox"?}. Use a permanent Clover API token
+# (auth_mode "token", the default here) so no refresh-to-disk is needed.
 
-    JSON shape: ``{ "<merchantId>": {"access_token", "refresh_token",
-    "oauth_client_id"?, "oauth_client_secret"?, "auth_mode"?, "region"?,
-    "sandbox"?}, ... }``.
 
-    ponytail: a flat JSON file is the laziest store that works for a handful of
-    merchants. Swap this class for a DB/secret-manager lookup when you outgrow
-    it — the rest of the code only calls .get().
-    """
+def load_tenants(config: Config) -> dict[str, Any]:
+    """Load the tenant map (file store overlaid by the env blob)."""
+    tenants: dict[str, Any] = {}
 
-    def __init__(self, path: Path) -> None:
-        self._path = path
-
-    def get(self, merchant_id: str) -> dict[str, Any] | None:
-        if not self._path.exists():
-            return None
+    if config.merchant_store and config.merchant_store.exists():
         try:
-            data = json.loads(self._path.read_text())
-        except Exception:
-            return None
-        entry = data.get(merchant_id) if isinstance(data, dict) else None
-        return entry if isinstance(entry, dict) else None
+            data = json.loads(config.merchant_store.read_text())
+            if isinstance(data, dict):
+                tenants.update(data)
+        except Exception:  # noqa: BLE001 — a broken file shouldn't crash the server
+            pass
+
+    raw = os.getenv("CLOVER_TENANTS_JSON", "").strip()
+    if raw:
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"CLOVER_TENANTS_JSON is not valid JSON: {exc}") from exc
+        if isinstance(data, dict):
+            tenants.update(data)
+
+    return tenants
 
 
-def extract_merchant_id(claims: dict[str, Any] | None, subject: str | None, claim_name: str) -> str:
-    """Pick the Clover merchant id from a validated token's claims.
+def tenant_key(claims: dict[str, Any] | None, subject: str | None, claim_name: str) -> str:
+    """The identity value that selects a tenant.
 
-    Prefers the configured claim, falls back to the token subject. Raises if the
-    token identifies no merchant — never default to some other merchant's data.
+    If ``claim_name`` is set, use that claim; otherwise fall back to the ``email``
+    claim and then the token subject. Raises if the token identifies nobody —
+    never default to another tenant's data.
     """
-    merchant_id = (claims or {}).get(claim_name) or subject
-    if not merchant_id:
+    claims = claims or {}
+    value = claims.get(claim_name) if claim_name else (claims.get("email") or subject)
+    if not value:
+        which = repr(claim_name) if claim_name else "email/subject"
         raise PermissionError(
-            f"Authenticated token carries no merchant id (claim {claim_name!r} / subject). "
-            "The IdP must put the Clover merchant id in the token."
+            f"Authenticated token carries no tenant identity ({which}). "
+            "Configure CLOVER_TENANT_CLAIM to a claim your IdP/platform actually sets."
         )
-    return str(merchant_id)
+    return str(value)
 
 
-def merchant_id_from_request(config: Config) -> str:
-    """Resolve the merchant id for the current authenticated request."""
-    from fastmcp.server.dependencies import get_access_token
-
-    token = get_access_token()
-    if token is None:  # pragma: no cover — auth middleware should guarantee a token
-        raise PermissionError("No authenticated token on request.")
-    return extract_merchant_id(
-        getattr(token, "claims", None), getattr(token, "subject", None), config.merchant_claim
-    )
-
-
-def config_for_merchant(base: Config, merchant_id: str) -> Config:
-    """Build a request-scoped Config for one merchant from the merchant store."""
-    creds = MerchantStore(base.merchant_store).get(merchant_id)
-    if not creds:
-        raise PermissionError(f"Merchant {merchant_id!r} is not provisioned in the merchant store.")
-    # Rotated refresh tokens persist to a per-merchant token store so single-use
-    # rotation stays isolated between merchants.
-    token_store = base.merchant_store.parent / f"tokens-{merchant_id}.json"
+def tenant_config(base: Config, tenants: dict[str, Any], key: str) -> Config:
+    """Build a request-scoped single-merchant Config from the tenant entry."""
+    entry = tenants.get(key)
+    if not isinstance(entry, dict) or not entry.get("merchant_id"):
+        raise PermissionError(
+            f"No Clover merchant provisioned for {key!r}. Add it to CLOVER_TENANTS_JSON."
+        )
     return dataclasses.replace(
         base,
-        merchant_id=merchant_id,
-        access_token=str(creds.get("access_token", "")),
-        refresh_token=str(creds.get("refresh_token", "")),
-        oauth_client_id=str(creds.get("oauth_client_id", base.oauth_client_id)),
-        oauth_client_secret=str(creds.get("oauth_client_secret", base.oauth_client_secret)),
-        auth_mode=str(creds.get("auth_mode", "oauth_refresh")),
-        region=str(creds.get("region", base.region)),
-        sandbox=bool(creds.get("sandbox", base.sandbox)),
-        token_store=token_store,
-        multi_merchant=False,  # the per-merchant config is single-merchant
+        merchant_id=str(entry["merchant_id"]),
+        access_token=str(entry.get("access_token", "")),
+        auth_mode=str(entry.get("auth_mode", "token")),
+        refresh_token=str(entry.get("refresh_token", "")),
+        oauth_client_id=str(entry.get("oauth_client_id", base.oauth_client_id)),
+        oauth_client_secret=str(entry.get("oauth_client_secret", base.oauth_client_secret)),
+        region=str(entry.get("region", base.region)),
+        sandbox=bool(entry.get("sandbox", base.sandbox)),
+        multi_merchant=False,  # the per-tenant config is single-merchant
     )
+
+
+def _request_token() -> Any:
+    from fastmcp.server.dependencies import get_access_token
+
+    return get_access_token()
+
+
+def request_tenant_key(config: Config) -> str:
+    """Resolve the tenant identity for the current authenticated request."""
+    token = _request_token()
+    if token is None:  # pragma: no cover — auth middleware should guarantee a token
+        raise PermissionError("No authenticated token on request.")
+    return tenant_key(
+        getattr(token, "claims", None), getattr(token, "subject", None), config.tenant_claim
+    )
+
+
+def auth_context(config: Config, tenants: dict[str, Any]) -> dict[str, Any]:
+    """Non-secret view of the current request's auth, for the `whoami` tool.
+
+    Returns the authenticated identity, the *names* of available claims (never
+    their values), scopes, and whether a tenant is provisioned for it. This is
+    how you discover what identity the platform (e.g. Horizon) actually provides
+    so you can key CLOVER_TENANTS_JSON correctly.
+    """
+    token = _request_token()
+    if token is None:
+        return {"authenticated": False}
+
+    claims = getattr(token, "claims", None) or {}
+    subject = getattr(token, "subject", None)
+    scopes = getattr(token, "scopes", None) or []
+
+    try:
+        key: str | None = tenant_key(claims, subject, config.tenant_claim)
+    except PermissionError:
+        key = None
+
+    return {
+        "authenticated": True,
+        "subject": subject,
+        "claim_keys": sorted(claims.keys()),
+        "scopes": list(scopes),
+        "tenant_key_source": config.tenant_claim or "email→subject",
+        "resolved_tenant_key": key,
+        "tenant_provisioned": bool(key and key in tenants),
+        "tenant_count": len(tenants),
+    }

@@ -15,9 +15,11 @@ from clover_mcp.client import CloverClient
 from clover_mcp.config import Config, load_config
 from clover_mcp.errors import CloverAPIError
 from clover_mcp.remote import (
+    auth_context,
     build_auth_provider,
-    config_for_merchant,
-    merchant_id_from_request,
+    load_tenants,
+    request_tenant_key,
+    tenant_config,
 )
 from clover_mcp.tools.customers import create_customer as _create_customer
 from clover_mcp.tools.customers import get_customer as _get_customer
@@ -100,10 +102,11 @@ async def create_server() -> FastMCP:
 
 
 # Cached config + clients. In single-merchant mode one client is reused; in
-# multi-merchant mode one client is cached per resolved merchant id.
+# multi-merchant mode one client is cached per resolved tenant identity.
 _config: Config | None = None
 _client: CloverClient | None = None
 _clients: dict[str, CloverClient] = {}
+_tenants_cache: dict[str, Any] | None = None
 
 
 def _get_config() -> Config:
@@ -113,20 +116,28 @@ def _get_config() -> Config:
     return _config
 
 
+def _get_tenants() -> dict[str, Any]:
+    """Parse the tenant map once per process (env blob + file store)."""
+    global _tenants_cache
+    if _tenants_cache is None:
+        _tenants_cache = load_tenants(_get_config())
+    return _tenants_cache
+
+
 def _get_client() -> CloverClient:
     """Return the Clover client for the current call.
 
     Single-merchant (stdio or single http): a reused module-level client.
-    Multi-merchant (http): resolve the merchant from the request's validated
-    token and return a per-merchant client (built once, then cached).
+    Multi-tenant (http): resolve the tenant from the request's validated token
+    identity and return a per-tenant client (built once, then cached).
     """
     config = _get_config()
     if config.multi_merchant:
-        merchant_id = merchant_id_from_request(config)
-        client = _clients.get(merchant_id)
+        key = request_tenant_key(config)
+        client = _clients.get(key)
         if client is None:
-            client = CloverClient(config_for_merchant(config, merchant_id))
-            _clients[merchant_id] = client
+            client = CloverClient(tenant_config(config, _get_tenants(), key))
+            _clients[key] = client
         return client
 
     global _client
@@ -230,6 +241,20 @@ _WRITE_SET = ToolAnnotations(
 
 
 # ── Tool registrations ────────────────────────────────────────────────────────
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+async def whoami() -> dict[str, Any]:
+    """Diagnostic: who is this request authenticated as, and is a Clover tenant
+    mapped to them?
+
+    Returns the authenticated identity, the *names* of available token claims
+    (never their values), scopes, and whether a tenant is provisioned — no Clover
+    data and no secrets. Use it when setting up multi-tenant to discover which
+    identity claim your platform (e.g. FastMCP Cloud / Horizon) actually provides,
+    so you can key CLOVER_TENANTS_JSON correctly.
+    """
+    return auth_context(_get_config(), _get_tenants())
 
 
 @mcp.tool(annotations=_READ)
