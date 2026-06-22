@@ -113,17 +113,16 @@ def merchant_id_from_request(config: Config) -> str:
     token = get_access_token()
     if token is None:  # pragma: no cover — auth middleware should guarantee a token
         raise PermissionError("No authenticated token on request.")
-    return extract_merchant_id(getattr(token, "claims", None), getattr(token, "subject", None),
-                               config.merchant_claim)
+    return extract_merchant_id(
+        getattr(token, "claims", None), getattr(token, "subject", None), config.merchant_claim
+    )
 
 
 def config_for_merchant(base: Config, merchant_id: str) -> Config:
     """Build a request-scoped Config for one merchant from the merchant store."""
     creds = MerchantStore(base.merchant_store).get(merchant_id)
     if not creds:
-        raise PermissionError(
-            f"Merchant {merchant_id!r} is not provisioned in the merchant store."
-        )
+        raise PermissionError(f"Merchant {merchant_id!r} is not provisioned in the merchant store.")
     # Rotated refresh tokens persist to a per-merchant token store so single-use
     # rotation stays isolated between merchants.
     token_store = base.merchant_store.parent / f"tokens-{merchant_id}.json"

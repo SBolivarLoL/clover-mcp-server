@@ -109,7 +109,9 @@ async def seed() -> None:
         # Items + an order with repeated line items so get_top_items has a winner.
         item_ids: list[str] = []
         for name, price in [("Seed Latte", 500), ("Seed Muffin", 300)]:
-            item = await _try(f"item {name}", client.post("/items", json={"name": name, "price": price}))
+            item = await _try(
+                f"item {name}", client.post("/items", json={"name": name, "price": price})
+            )
             if item:
                 item_ids.append(item["id"])
         state["item_ids"] = item_ids
@@ -187,7 +189,9 @@ async def cleanup() -> None:
         for iid in state.get("item_ids", []):
             order_paths.append(f"/items/{iid}")
         rest = [
-            f"/modifier_groups/{state['modifier_group_id']}" if state.get("modifier_group_id") else None,
+            f"/modifier_groups/{state['modifier_group_id']}"
+            if state.get("modifier_group_id")
+            else None,
             f"/categories/{state['category_id']}" if state.get("category_id") else None,
             f"/tax_rates/{state['tax_rate_id']}" if state.get("tax_rate_id") else None,
             f"/employees/{state['employee_id']}" if state.get("employee_id") else None,

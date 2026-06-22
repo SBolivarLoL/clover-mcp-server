@@ -98,7 +98,9 @@ def load_config() -> Config:
 
     # In multi-merchant mode the merchant id and Clover token come from the
     # validated request token + per-merchant store, not from these env vars.
-    merchant_id = optional("CLOVER_MERCHANT_ID") if multi_merchant else require("CLOVER_MERCHANT_ID")
+    merchant_id = (
+        optional("CLOVER_MERCHANT_ID") if multi_merchant else require("CLOVER_MERCHANT_ID")
+    )
     access_token = optional("CLOVER_ACCESS_TOKEN")
     region = optional("CLOVER_REGION", "na")
     sandbox = truthy("CLOVER_SANDBOX")
