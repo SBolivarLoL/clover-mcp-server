@@ -5,14 +5,20 @@ from __future__ import annotations
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from typing import Any
 
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from clover_mcp.client import CloverClient
-from clover_mcp.config import load_config
+from clover_mcp.config import Config, load_config
 from clover_mcp.errors import CloverAPIError
+from clover_mcp.remote import (
+    build_auth_provider,
+    config_for_merchant,
+    merchant_id_from_request,
+)
 from clover_mcp.tools.customers import create_customer as _create_customer
 from clover_mcp.tools.customers import get_customer as _get_customer
 from clover_mcp.tools.customers import search_customers as _search_customers
@@ -45,26 +51,86 @@ async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
     yield
 
 
-mcp: FastMCP = FastMCP(
-    "Clover POS",
-    instructions=(
-        "Tools for querying and managing a Clover POS merchant: "
-        "sales reporting, inventory, orders, and customers. "
-        "IMPORTANT: This server does NOT support payment capture, refunds, "
-        "voids, or charge creation — those actions must be performed in the "
-        "Clover dashboard directly."
-    ),
-    lifespan=_lifespan,
+def _boot_config() -> Config | None:
+    """Load config at import for the auth provider. Returns None if the env isn't
+    configured (e.g. during tests / CI) so importing the server never requires a
+    full environment — auth is simply absent in that case."""
+    try:
+        return load_config()
+    except Exception:
+        return None
+
+
+_INSTRUCTIONS = (
+    "Tools for querying and managing a Clover POS merchant: "
+    "sales reporting, inventory, orders, and customers. "
+    "IMPORTANT: This server does NOT support payment capture, refunds, "
+    "voids, or charge creation — those actions must be performed in the "
+    "Clover dashboard directly."
 )
 
-# Module-level client — initialised lazily on first tool call
+# Resolve the layer-1 OAuth provider once, at construction. FastMCP wires the
+# Protected Resource Metadata routes from this — it can't be attached later.
+_BOOT_CONFIG = _boot_config()
+_auth = build_auth_provider(_BOOT_CONFIG) if _BOOT_CONFIG is not None else None
+
+mcp: FastMCP = FastMCP(
+    "Clover POS",
+    instructions=_INSTRUCTIONS,
+    lifespan=_lifespan,
+    auth=_auth,
+)
+
+
+async def create_server() -> FastMCP:
+    """Hosted/remote entrypoint (e.g. FastMCP Cloud `fastmcp run server.py:create_server`).
+
+    Fail-closed: always builds the layer-1 OAuth resource server and refuses to
+    construct without an IdP — so a managed HTTP deploy can never accidentally
+    serve unauthenticated, regardless of the CLOVER_TRANSPORT value. Tool
+    definitions are copied from the module-level server so there's one source.
+    """
+    config = replace(load_config(), transport="http")  # force http → auth mandatory
+    auth = build_auth_provider(config)  # raises without jwks_uri + issuer + public_url
+    server: FastMCP = FastMCP(
+        "Clover POS", instructions=_INSTRUCTIONS, lifespan=_lifespan, auth=auth
+    )
+    server.mount(mcp)  # expose all 23 tools (no prefix)
+    return server
+
+
+# Cached config + clients. In single-merchant mode one client is reused; in
+# multi-merchant mode one client is cached per resolved merchant id.
+_config: Config | None = None
 _client: CloverClient | None = None
+_clients: dict[str, CloverClient] = {}
+
+
+def _get_config() -> Config:
+    global _config
+    if _config is None:
+        _config = _BOOT_CONFIG or load_config()
+    return _config
 
 
 def _get_client() -> CloverClient:
+    """Return the Clover client for the current call.
+
+    Single-merchant (stdio or single http): a reused module-level client.
+    Multi-merchant (http): resolve the merchant from the request's validated
+    token and return a per-merchant client (built once, then cached).
+    """
+    config = _get_config()
+    if config.multi_merchant:
+        merchant_id = merchant_id_from_request(config)
+        client = _clients.get(merchant_id)
+        if client is None:
+            client = CloverClient(config_for_merchant(config, merchant_id))
+            _clients[merchant_id] = client
+        return client
+
     global _client
     if _client is None:
-        config = load_config()
         _client = CloverClient(config)
     return _client
 
@@ -74,6 +140,16 @@ def _get_client() -> CloverClient:
 
 async def _check_permissions() -> None:
     """Probe one read per required permission category and report failures."""
+    # Multi-merchant has no single startup merchant — credentials and scopes are
+    # resolved (and surfaced as 403s) per request instead.
+    if _get_config().multi_merchant:
+        print(
+            "Starting in multi-merchant http mode; per-merchant permission checks "
+            "happen on first use.",
+            file=sys.stderr,
+        )
+        return
+
     client = _get_client()
     missing: list[str] = []
 

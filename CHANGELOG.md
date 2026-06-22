@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Added — v2 remote/hosted (phase 1, opt-in; stdio single-merchant unchanged)
+- **HTTP transport**: `CLOVER_TRANSPORT=http` runs a network-reachable Streamable
+  HTTP server (host/port/path configurable).
+- **Layer-1 OAuth (resource server)**: validates IdP-issued JWTs via FastMCP
+  `RemoteAuthProvider` + `JWTVerifier`, and publishes Protected Resource Metadata
+  (RFC 9728) at `/.well-known/oauth-protected-resource/mcp`. The server **refuses
+  to start** in http mode unless `CLOVER_AUTH_JWKS_URI`, `CLOVER_AUTH_ISSUER`, and
+  `CLOVER_PUBLIC_URL` are set — a remote MCP server must not run unauthenticated.
+- **Multi-merchant** (`CLOVER_MULTI_MERCHANT=true`): each request is routed to the
+  merchant named in a validated token claim (`CLOVER_MERCHANT_CLAIM`, default
+  `clover_merchant_id`); per-merchant Clover credentials come from a JSON merchant
+  store, with isolated single-use refresh-token rotation per merchant.
+- `docs/DEPLOY.md` covers hosting, IdP setup, env vars, and the merchant store.
+- Dependency floor raised to `fastmcp>=3.4` (the auth APIs above).
 
 ## [0.1.5] — 2026-06-21
 ### Added

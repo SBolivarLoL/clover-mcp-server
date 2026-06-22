@@ -141,6 +141,16 @@ Your token must have the following Clover permission scopes:
 
 Read scopes (`*_R`) are probed at startup; the server reports any missing ones and exits — **except `EMPLOYEES_R`, which is optional**: if it's not granted the server only warns and the employee/shift tools return a 403 when called. Write scopes (`*_W`) are **not** probed (a probe would mutate data) — a missing write scope surfaces as a 403 the first time you call that tool. Permission changes on a Clover app require the merchant to reinstall the app.
 
+## Remote / hosted (v2)
+
+By default this runs locally over stdio for a single merchant. It can also run as
+a network-reachable HTTP server with OAuth, serving multiple merchants — set
+`CLOVER_TRANSPORT=http` and configure an Identity Provider. It acts as an OAuth
+2.1 **resource server** (validates IdP-issued JWTs, publishes Protected Resource
+Metadata per RFC 9728) and routes each request to the merchant named in the
+token. See **[docs/DEPLOY.md](docs/DEPLOY.md)**. The server refuses to start in
+http mode without an IdP configured — a remote MCP server must not run open.
+
 ## Sales summary semantics
 
 `get_sales_summary` makes the accounting explicit so the LLM can explain it:
