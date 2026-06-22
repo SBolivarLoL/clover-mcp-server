@@ -19,7 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "fastmcp>=2.0",
+    "fastmcp>=3.4",  # v2 remote auth (RemoteAuthProvider, JWTVerifier, PRM) needs 3.x
     "httpx>=0.27",
     "python-dotenv>=1.0",
 ]

@@ -53,16 +53,30 @@ Follow-up:
 
 ## v2 — remote / hosted server (bigger effort)
 
-- [ ] **Streamable HTTP transport** (vs. stdio).
-- [ ] **Multi-merchant**: per-merchant token storage + routing.
-- [ ] **MCP-level (layer-1) OAuth — mandatory once network-reachable.** Distinct
-      from the upstream Clover auth. Per the MCP authorization spec:
-  - [ ] OAuth 2.1 + PKCE (S256); no implicit grant
-  - [ ] Act as a **resource server only** — delegate to an external authorization server / IdP
-  - [ ] Publish Protected Resource Metadata (RFC 9728) at `/.well-known/oauth-protected-resource`
-  - [ ] Support RFC 8414 (AS metadata) + RFC 8707 (resource indicators, audience-bound tokens)
-- [ ] **OAuth onboarding** (auth-code + PKCE w/ hosted callback) replacing manual token paste.
+**Phase 1 shipped (code on branch, opt-in, stdio default unchanged):** transport
+switch, multi-merchant routing, and layer-1 OAuth via FastMCP's resource-server
+support. See [docs/DEPLOY.md](docs/DEPLOY.md). Live-verified PRM + 401 discovery.
+
+- [x] **Streamable HTTP transport** (vs. stdio) — `CLOVER_TRANSPORT=http`.
+- [x] **Multi-merchant**: per-merchant store + routing by validated token claim
+      (`remote.py`: `MerchantStore`, `config_for_merchant`, per-merchant client cache).
+- [x] **MCP-level (layer-1) OAuth — mandatory once network-reachable.** Via FastMCP
+      `RemoteAuthProvider` + `JWTVerifier` (resource server only; http refuses to
+      start without an IdP):
+  - [x] OAuth 2.1 bearer JWT validation against an external AS/IdP (no implicit grant)
+  - [x] Resource server only — delegates to the operator's IdP (no token issuance here)
+  - [x] Publishes Protected Resource Metadata (RFC 9728) at
+        `/.well-known/oauth-protected-resource/mcp`; 401s carry the `resource_metadata` pointer
+  - [x] Audience-bound tokens (RFC 8707) + scope enforcement via `JWTVerifier`
+- [ ] **OAuth onboarding** (auth-code + PKCE w/ hosted callback) — the IdP owns this;
+      remaining glue is provisioning each merchant's row in the merchant store.
 - [ ] **Webhook → SSE bridge** (optional) for push updates.
+
+Phase-2 follow-ups (need the operator's hosting/IdP choices):
+- [ ] Pick + wire a concrete IdP provider module (Auth0/Clerk/WorkOS/Cognito/…) if
+      you want first-class config over the generic JWKS path.
+- [ ] Replace the flat-file `MerchantStore` with a DB/secret-manager when scaling.
+- [ ] Deploy target + CI/CD for the hosted service (Dockerfile, health check).
 
 ---
 
