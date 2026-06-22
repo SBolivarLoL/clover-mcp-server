@@ -168,8 +168,13 @@ _IDENTITY_HEADERS = frozenset(
         "x-remote-user",
         "x-ms-client-principal-name",
         "x-goog-authenticated-user-email",
-        "x-fastmcp-user",
-        "x-fastmcp-email",
+        # FastMCP Cloud / Horizon gateway-injected identity
+        "horizon-user-email",
+        "horizon-user-id",
+        "horizon-actor-email",
+        "horizon-workos-user",
+        "fastmcp-cloud-user",
+        "fastmcp-cloud-actor",
     }
 )
 
@@ -225,40 +230,34 @@ def auth_context(config: Config, tenants: dict[str, Any]) -> dict[str, Any]:
     # Header NAMES are safe to surface; show VALUES only for known identity headers
     # (never authorization/cookie). This reveals what a gateway forwards.
     identity_headers = {k: v for k, v in headers.items() if k.lower() in _IDENTITY_HEADERS}
-    out: dict[str, Any] = {
-        "tenant_count": len(tenants),
-        "http_header_names": sorted(headers),
-        "identity_headers": identity_headers,
-    }
-
     token = _request_token()
-    if token is None:
-        out["authenticated"] = False
-        out["note"] = (
-            "No validated token in the server's auth context — a managed platform "
-            "(e.g. Horizon) likely authenticated at its gateway. Look for your "
-            "identity in identity_headers / http_header_names, then set "
-            "CLOVER_TENANT_HEADER to that header name."
-        )
-        return out
 
-    claims = getattr(token, "claims", None) or {}
-    subject = getattr(token, "subject", None)
-    scopes = getattr(token, "scopes", None) or []
+    # Preview the exact resolution a tool would do (header source or token claim).
     try:
-        key: str | None = tenant_key(claims, subject, config.tenant_claim)
+        key: str | None = request_tenant_key(config)
     except PermissionError:
         key = None
 
-    out.update(
-        {
-            "authenticated": True,
-            "subject": subject,
-            "claim_keys": sorted(claims.keys()),
-            "scopes": list(scopes),
-            "tenant_key_source": config.tenant_header or config.tenant_claim or "email→subject",
-            "resolved_tenant_key": key,
-            "tenant_provisioned": bool(key and key in tenants),
-        }
-    )
+    out: dict[str, Any] = {
+        "authenticated": token is not None,
+        "tenant_count": len(tenants),
+        "http_header_names": sorted(headers),
+        "identity_headers": identity_headers,
+        "tenant_key_source": config.tenant_header or config.tenant_claim or "email→subject",
+        "resolved_tenant_key": key,
+        "tenant_provisioned": bool(key and key in tenants),
+    }
+
+    if token is not None:
+        claims = getattr(token, "claims", None) or {}
+        out["subject"] = getattr(token, "subject", None)
+        out["claim_keys"] = sorted(claims.keys())
+        out["scopes"] = list(getattr(token, "scopes", None) or [])
+
+    if key is None:
+        out["note"] = (
+            "No tenant identity resolved. Set CLOVER_TENANT_HEADER to the header that "
+            "carries your identity (see identity_headers / http_header_names) — or "
+            "CLOVER_TENANT_CLAIM if your platform forwards a validated token."
+        )
     return out
