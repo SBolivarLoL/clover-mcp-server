@@ -39,6 +39,7 @@ _VARS = [
     "CLOVER_MERCHANT_STORE",
     "CLOVER_TENANT_CLAIM",
     "CLOVER_TENANTS_JSON",
+    "CLOVER_TENANT_HEADER",
 ]
 
 
@@ -238,3 +239,20 @@ def test_tenant_config_builds_scoped_single_merchant() -> None:
 def test_tenant_config_unprovisioned_raises() -> None:
     with pytest.raises(PermissionError, match="No Clover merchant provisioned"):
         tenant_config(_base_config(), {}, "ghost@nowhere")
+
+
+def test_request_tenant_key_from_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    import clover_mcp.remote as remote
+
+    monkeypatch.setattr(remote, "_request_headers", lambda: {"x-forwarded-email": "u@store.com"})
+    assert (
+        remote.request_tenant_key(_base_config(tenant_header="x-forwarded-email")) == "u@store.com"
+    )
+
+
+def test_request_tenant_key_missing_header_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    import clover_mcp.remote as remote
+
+    monkeypatch.setattr(remote, "_request_headers", lambda: {})
+    with pytest.raises(PermissionError, match="no 'x-forwarded-email' header"):
+        remote.request_tenant_key(_base_config(tenant_header="x-forwarded-email"))
