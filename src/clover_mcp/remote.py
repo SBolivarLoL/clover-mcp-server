@@ -134,6 +134,10 @@ def tenant_config(base: Config, tenants: dict[str, Any], key: str) -> Config:
         raise PermissionError(
             f"No Clover merchant provisioned for {key!r}. Add it to CLOVER_TENANTS_JSON."
         )
+    # Isolate each tenant's token store so oauth_refresh rotation can't clobber or
+    # leak between tenants (they'd otherwise share base.token_store).
+    safe = "".join(c if c.isalnum() else "_" for c in key)
+    token_store = base.merchant_store.parent / f"tokens-{safe}.json"
     return dataclasses.replace(
         base,
         merchant_id=str(entry["merchant_id"]),
@@ -144,6 +148,7 @@ def tenant_config(base: Config, tenants: dict[str, Any], key: str) -> Config:
         oauth_client_secret=str(entry.get("oauth_client_secret", base.oauth_client_secret)),
         region=str(entry.get("region", base.region)),
         sandbox=bool(entry.get("sandbox", base.sandbox)),
+        token_store=token_store,
         multi_merchant=False,  # the per-tenant config is single-merchant
     )
 

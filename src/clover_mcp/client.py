@@ -76,6 +76,13 @@ class CloverClient:
         url = self._url(path)
         context = f"{method} {path}"
 
+        # oauth_refresh may start with no access token (e.g. a tenant configured
+        # with only a refresh token, or an ephemeral host with an empty store).
+        # Bootstrap one first — an empty `Bearer ` header is rejected before it's
+        # even sent, so the 401→refresh path below would never get a chance.
+        if not self._access_token and self._config.auth_mode == "oauth_refresh":
+            self._access_token = await refresh_access_token(self._config, "")
+
         resp = await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
 
         # 401 → refresh once (oauth_refresh only)

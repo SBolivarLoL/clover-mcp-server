@@ -148,6 +148,30 @@ async def test_client_401_refreshes_and_retries(tmp_path: Path, mock_http: respx
 
 
 @pytest.mark.asyncio
+async def test_client_bootstraps_when_no_access_token(
+    tmp_path: Path, mock_http: respx.Router
+) -> None:
+    """oauth_refresh starting with an empty access token (only a refresh token)
+    must refresh BEFORE the first request — an empty `Bearer ` header is rejected
+    before it can even be sent, so there'd be no 401 to react to."""
+    cfg = _oauth_config(tmp_path / "tokens.json", access_token="")
+    client = CloverClient(cfg)
+
+    mock_http.post(_REFRESH_PATH).mock(
+        return_value=httpx.Response(200, json={"access_token": "acc_boot", "refresh_token": "rt2"})
+    )
+    route = mock_http.get(_MERCHANT_PATH).mock(
+        return_value=httpx.Response(200, json={"id": TEST_MERCHANT_ID, "name": "Café"})
+    )
+
+    result = await client.get(_MERCHANT_PATH)
+
+    assert result["id"] == TEST_MERCHANT_ID
+    assert route.calls.last.request.headers["Authorization"] == "Bearer acc_boot"
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_client_token_mode_does_not_refresh(
     client: CloverClient, mock_http: respx.Router
 ) -> None:
