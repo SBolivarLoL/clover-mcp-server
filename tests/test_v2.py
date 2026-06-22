@@ -140,6 +140,33 @@ def test_http_with_full_idp_builds_provider() -> None:
     assert provider is not None
 
 
+@pytest.mark.asyncio
+async def test_create_server_fails_closed_without_idp(clean_env: pytest.MonkeyPatch) -> None:
+    """The hosted factory must refuse to construct without an IdP, even if
+    CLOVER_TRANSPORT isn't set — a managed deploy can't serve unauthenticated."""
+    clean_env.setenv("CLOVER_MERCHANT_ID", "M1")
+    clean_env.setenv("CLOVER_ACCESS_TOKEN", "tok")
+    from clover_mcp.server import create_server
+
+    with pytest.raises(RuntimeError, match="Refusing to serve an unauthenticated"):
+        await create_server()
+
+
+@pytest.mark.asyncio
+async def test_create_server_builds_authed_with_tools(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("CLOVER_MERCHANT_ID", "M1")
+    clean_env.setenv("CLOVER_ACCESS_TOKEN", "tok")
+    clean_env.setenv("CLOVER_AUTH_JWKS_URI", "https://idp.example.com/.well-known/jwks.json")
+    clean_env.setenv("CLOVER_AUTH_ISSUER", "https://idp.example.com/")
+    clean_env.setenv("CLOVER_PUBLIC_URL", "https://clover.fastmcp.app")
+    from clover_mcp.server import create_server
+
+    server = await create_server()
+    assert server.auth is not None
+    # tools were copied from the module server
+    assert await server.get_tool("get_merchant_info") is not None
+
+
 def test_http_app_serves_protected_resource_metadata() -> None:
     """The provider must wire RFC 9728 Protected Resource Metadata into the app."""
     import fastmcp

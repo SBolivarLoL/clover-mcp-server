@@ -15,6 +15,40 @@ MCP client ──token──> clover-mcp (resource server) ──validates JWT�
                             └─ merchant id from token claim ─> merchant store ─> Clover API
 ```
 
+## FastMCP Cloud (horizon)
+
+FastMCP Cloud runs `fastmcp run <entrypoint>` and serves your server over HTTP
+itself. Use the **fail-closed factory**:
+
+```
+Entrypoint:  server.py:create_server
+```
+
+`create_server` (repo-root [server.py](../server.py) → `clover_mcp.server.create_server`)
+always builds the OAuth resource server and **refuses to start without an IdP**,
+so a managed HTTP deploy can never serve unauthenticated — even if you forget
+`CLOVER_TRANSPORT`. (The bare `server.py:mcp` object also works but is only
+authenticated when `CLOVER_TRANSPORT=http` is set, so it's easier to misconfigure.)
+
+Set the env vars below in **Advanced Configuration**. `CLOVER_PUBLIC_URL` is the
+URL FastMCP Cloud shows you (e.g. `https://clover.fastmcp.app`).
+
+> **Ephemeral filesystem.** FastMCP Cloud containers don't persist disk between
+> restarts. That affects two things:
+> - **Multi-merchant store**: a flat-file `CLOVER_MERCHANT_STORE` won't survive
+>   restarts and can't be written to at runtime. For a hosted multi-tenant deploy
+>   you need a persistent store (DB / secret manager) — see phase-2 in the ROADMAP.
+> - **OAuth refresh rotation** writes a new single-use refresh token to disk; on
+>   an ephemeral host that's lost on restart. For the first hosted deploy prefer
+>   **single-merchant + `CLOVER_AUTH_MODE=token`** with a long-lived Clover token
+>   (no rotation, no disk needed), or keep `oauth_refresh` knowing a restart needs
+>   re-seeding.
+
+**Recommended first hosted deploy** (single merchant, simplest + secure): set
+`CLOVER_TRANSPORT=http`, the three auth vars, `CLOVER_PUBLIC_URL`, plus
+`CLOVER_MERCHANT_ID` and a long-lived `CLOVER_ACCESS_TOKEN` (`CLOVER_AUTH_MODE=token`).
+Leave `CLOVER_MULTI_MERCHANT` unset. Add multi-tenant once a persistent store exists.
+
 ## What you must decide / provide
 
 1. **A host** with a public HTTPS URL (Fly.io, Render, Cloud Run, Railway, a

@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from typing import Any
 
 from fastmcp import FastMCP
@@ -60,6 +61,14 @@ def _boot_config() -> Config | None:
         return None
 
 
+_INSTRUCTIONS = (
+    "Tools for querying and managing a Clover POS merchant: "
+    "sales reporting, inventory, orders, and customers. "
+    "IMPORTANT: This server does NOT support payment capture, refunds, "
+    "voids, or charge creation — those actions must be performed in the "
+    "Clover dashboard directly."
+)
+
 # Resolve the layer-1 OAuth provider once, at construction. FastMCP wires the
 # Protected Resource Metadata routes from this — it can't be attached later.
 _BOOT_CONFIG = _boot_config()
@@ -67,16 +76,28 @@ _auth = build_auth_provider(_BOOT_CONFIG) if _BOOT_CONFIG is not None else None
 
 mcp: FastMCP = FastMCP(
     "Clover POS",
-    instructions=(
-        "Tools for querying and managing a Clover POS merchant: "
-        "sales reporting, inventory, orders, and customers. "
-        "IMPORTANT: This server does NOT support payment capture, refunds, "
-        "voids, or charge creation — those actions must be performed in the "
-        "Clover dashboard directly."
-    ),
+    instructions=_INSTRUCTIONS,
     lifespan=_lifespan,
     auth=_auth,
 )
+
+
+async def create_server() -> FastMCP:
+    """Hosted/remote entrypoint (e.g. FastMCP Cloud `fastmcp run server.py:create_server`).
+
+    Fail-closed: always builds the layer-1 OAuth resource server and refuses to
+    construct without an IdP — so a managed HTTP deploy can never accidentally
+    serve unauthenticated, regardless of the CLOVER_TRANSPORT value. Tool
+    definitions are copied from the module-level server so there's one source.
+    """
+    config = replace(load_config(), transport="http")  # force http → auth mandatory
+    auth = build_auth_provider(config)  # raises without jwks_uri + issuer + public_url
+    server: FastMCP = FastMCP(
+        "Clover POS", instructions=_INSTRUCTIONS, lifespan=_lifespan, auth=auth
+    )
+    server.mount(mcp)  # expose all 23 tools (no prefix)
+    return server
+
 
 # Cached config + clients. In single-merchant mode one client is reused; in
 # multi-merchant mode one client is cached per resolved merchant id.
