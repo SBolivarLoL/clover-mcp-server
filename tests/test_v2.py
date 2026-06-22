@@ -234,6 +234,8 @@ def test_tenant_config_builds_scoped_single_merchant() -> None:
     assert scoped.auth_mode == "token"  # tenants default to permanent tokens
     assert scoped.sandbox is True
     assert scoped.multi_merchant is False
+    # per-tenant token store isolation (no cross-tenant clobber on oauth_refresh)
+    assert scoped.token_store.name == "tokens-a_b_c.json"
 
 
 def test_tenant_config_unprovisioned_raises() -> None:
