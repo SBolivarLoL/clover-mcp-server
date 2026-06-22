@@ -148,17 +148,66 @@ def tenant_config(base: Config, tenants: dict[str, Any], key: str) -> Config:
     )
 
 
+# HTTP headers a gateway commonly forwards the authenticated identity in. Used
+# only to surface candidate values in `whoami`; the actual one is configured via
+# CLOVER_TENANT_HEADER once you see which your platform sends.
+_IDENTITY_HEADERS = frozenset(
+    {
+        "x-forwarded-user",
+        "x-forwarded-email",
+        "x-forwarded-preferred-username",
+        "x-auth-request-user",
+        "x-auth-request-email",
+        "x-auth-request-preferred-username",
+        "x-authenticated-user",
+        "x-authenticated-userid",
+        "x-user",
+        "x-user-id",
+        "x-user-email",
+        "remote-user",
+        "x-remote-user",
+        "x-ms-client-principal-name",
+        "x-goog-authenticated-user-email",
+        "x-fastmcp-user",
+        "x-fastmcp-email",
+    }
+)
+
+
 def _request_token() -> Any:
     from fastmcp.server.dependencies import get_access_token
 
     return get_access_token()
 
 
+def _request_headers() -> dict[str, str]:
+    from fastmcp.server.dependencies import get_http_headers
+
+    return get_http_headers(include_all=True)
+
+
 def request_tenant_key(config: Config) -> str:
-    """Resolve the tenant identity for the current authenticated request."""
+    """Resolve the tenant identity for the current request.
+
+    Two sources: an HTTP header (CLOVER_TENANT_HEADER — for gateway platforms like
+    Horizon that authenticate at the edge and forward identity as a header), or a
+    validated token claim (a custom IdP). Fails closed if neither yields anything.
+    """
+    if config.tenant_header:
+        headers = _request_headers()
+        value = headers.get(config.tenant_header) or headers.get(config.tenant_header.lower())
+        if not value:
+            raise PermissionError(
+                f"Request has no {config.tenant_header!r} header to identify the tenant."
+            )
+        return str(value)
+
     token = _request_token()
-    if token is None:  # pragma: no cover — auth middleware should guarantee a token
-        raise PermissionError("No authenticated token on request.")
+    if token is None:
+        raise PermissionError(
+            "No authenticated identity on request: no validated token, and "
+            "CLOVER_TENANT_HEADER is not set. Run `whoami` to see what your platform forwards."
+        )
     return tenant_key(
         getattr(token, "claims", None), getattr(token, "subject", None), config.tenant_claim
     )
@@ -172,26 +221,44 @@ def auth_context(config: Config, tenants: dict[str, Any]) -> dict[str, Any]:
     how you discover what identity the platform (e.g. Horizon) actually provides
     so you can key CLOVER_TENANTS_JSON correctly.
     """
+    headers = _request_headers()
+    # Header NAMES are safe to surface; show VALUES only for known identity headers
+    # (never authorization/cookie). This reveals what a gateway forwards.
+    identity_headers = {k: v for k, v in headers.items() if k.lower() in _IDENTITY_HEADERS}
+    out: dict[str, Any] = {
+        "tenant_count": len(tenants),
+        "http_header_names": sorted(headers),
+        "identity_headers": identity_headers,
+    }
+
     token = _request_token()
     if token is None:
-        return {"authenticated": False}
+        out["authenticated"] = False
+        out["note"] = (
+            "No validated token in the server's auth context — a managed platform "
+            "(e.g. Horizon) likely authenticated at its gateway. Look for your "
+            "identity in identity_headers / http_header_names, then set "
+            "CLOVER_TENANT_HEADER to that header name."
+        )
+        return out
 
     claims = getattr(token, "claims", None) or {}
     subject = getattr(token, "subject", None)
     scopes = getattr(token, "scopes", None) or []
-
     try:
         key: str | None = tenant_key(claims, subject, config.tenant_claim)
     except PermissionError:
         key = None
 
-    return {
-        "authenticated": True,
-        "subject": subject,
-        "claim_keys": sorted(claims.keys()),
-        "scopes": list(scopes),
-        "tenant_key_source": config.tenant_claim or "email→subject",
-        "resolved_tenant_key": key,
-        "tenant_provisioned": bool(key and key in tenants),
-        "tenant_count": len(tenants),
-    }
+    out.update(
+        {
+            "authenticated": True,
+            "subject": subject,
+            "claim_keys": sorted(claims.keys()),
+            "scopes": list(scopes),
+            "tenant_key_source": config.tenant_header or config.tenant_claim or "email→subject",
+            "resolved_tenant_key": key,
+            "tenant_provisioned": bool(key and key in tenants),
+        }
+    )
+    return out

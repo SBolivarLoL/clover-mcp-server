@@ -63,8 +63,12 @@ class Config:
     merchant_claim: str = "clover_merchant_id"
     merchant_store: Path = Path("~/.config/clover-mcp/merchants.json")
     # Multi-tenant: the token claim whose value keys the tenant map. Empty → fall
-    # back to the `email` claim, then the subject (right for Horizon's user auth).
+    # back to the `email` claim, then the subject (right for a custom IdP).
     tenant_claim: str = ""
+    # Multi-tenant on a gateway platform (e.g. Horizon authenticates at the edge
+    # and forwards an identity HTTP header, not a token). If set, the tenant key is
+    # read from this request header instead of the token claim.
+    tenant_header: str = ""
     base_url: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -188,4 +192,5 @@ def load_config() -> Config:
         merchant_claim=optional("CLOVER_MERCHANT_CLAIM", "clover_merchant_id"),
         merchant_store=merchant_store,
         tenant_claim=optional("CLOVER_TENANT_CLAIM"),
+        tenant_header=optional("CLOVER_TENANT_HEADER"),
     )

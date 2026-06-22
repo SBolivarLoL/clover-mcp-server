@@ -52,23 +52,33 @@ multi-tenant works by **mapping each authenticated user → their Clover merchan
 The map lives in an **env var** (Horizon env survives restarts; the disk doesn't),
 and each merchant uses a **permanent API token** (no refresh-to-disk needed).
 
-**Step 1 — discover the identity Horizon gives you.** Deploy with:
+**Step 1 — discover the identity Horizon gives you.** Horizon authenticates at
+its *gateway* and forwards the request to your server, so the identity usually
+arrives as an **HTTP header**, not a token. Deploy with:
 ```
 CLOVER_MULTI_MERCHANT=true
 CLOVER_TENANTS_JSON={}
 ```
-Connect (Inspector/client) and call the **`whoami`** tool. It returns the
-authenticated identity and the *names* of available claims (no secrets), e.g.:
+Connect (Inspector/client) and call the **`whoami`** tool. It returns the request
+header *names* and the values of any recognized identity headers (no secrets):
 ```json
-{ "authenticated": true, "subject": "...", "claim_keys": ["email","sub",...],
-  "tenant_key_source": "email→subject", "resolved_tenant_key": "you@store.com" }
+{ "authenticated": false,
+  "http_header_names": ["host","x-forwarded-email","x-forwarded-user", ...],
+  "identity_headers": {"x-forwarded-email": "you@store.com"} }
 ```
-That `resolved_tenant_key` is what you key the tenant map on. If you'd rather key
-on a different claim, set `CLOVER_TENANT_CLAIM=<claim_name>`.
+Pick the header that carries your identity (e.g. `x-forwarded-email`) and set
+`CLOVER_TENANT_HEADER` to its name. (If instead `authenticated: true` and you see
+`claim_keys`, your platform forwards a token — use `CLOVER_TENANT_CLAIM` and the
+`resolved_tenant_key` value.) If `identity_headers` is empty *and* nothing in
+`http_header_names` looks like a user identity, the platform isn't forwarding one
+— multi-tenant then needs self-hosting (section B), where we control auth.
 
-**Step 2 — provide the tenant map.** Set `CLOVER_TENANTS_JSON` to a JSON object
-keyed by that identity, each entry holding the merchant's **permanent** token:
+**Step 2 — provide the tenant map.** Set `CLOVER_TENANT_HEADER` (or
+`CLOVER_TENANT_CLAIM`) to the identity source from step 1, then `CLOVER_TENANTS_JSON`
+to a JSON object keyed by that identity value, each entry holding the merchant's
+**permanent** token:
 ```
+CLOVER_TENANT_HEADER=x-forwarded-email
 CLOVER_TENANTS_JSON={"you@store.com":{"merchant_id":"ABC123","access_token":"<permanent>","sandbox":false,"region":"na"},"other@store.com":{"merchant_id":"XYZ789","access_token":"<permanent>"}}
 ```
 Redeploy. Each authenticated user now transparently gets *their* merchant's data;
