@@ -53,13 +53,14 @@ Follow-up:
 
 ## v2 — remote / hosted server (bigger effort)
 
-**Phase 1 shipped (code on branch, opt-in, stdio default unchanged):** transport
-switch, multi-merchant routing, and layer-1 OAuth via FastMCP's resource-server
-support. See [docs/DEPLOY.md](docs/DEPLOY.md). Live-verified PRM + 401 discovery.
+**Phase 1 shipped (released in 0.2.0, opt-in, stdio default unchanged):** transport
+switch and layer-1 OAuth via FastMCP's resource-server support. See
+[docs/DEPLOY.md](docs/DEPLOY.md). Live-verified PRM + 401 discovery.
 
 - [x] **Streamable HTTP transport** (vs. stdio) — `CLOVER_TRANSPORT=http`.
-- [x] **Multi-merchant**: per-merchant store + routing by validated token claim
-      (`remote.py`: `MerchantStore`, `config_for_merchant`, per-merchant client cache).
+- [x] **Multi-tenant routing** — per-request merchant by authenticated identity
+      (`remote.py`: `load_tenants`, `tenant_config`, `request_tenant_key`, per-tenant
+      client cache). _See phase 2 below._
 - [x] **MCP-level (layer-1) OAuth — mandatory once network-reachable.** Via FastMCP
       `RemoteAuthProvider` + `JWTVerifier` (resource server only; http refuses to
       start without an IdP):
@@ -72,15 +73,58 @@ support. See [docs/DEPLOY.md](docs/DEPLOY.md). Live-verified PRM + 401 discovery
       remaining glue is provisioning each merchant's row in the merchant store.
 - [ ] **Webhook → SSE bridge** (optional) for push updates.
 
-Phase-2 follow-ups (need the operator's hosting/IdP choices):
-- [ ] Pick + wire a concrete IdP provider module (Auth0/Clerk/WorkOS/Cognito/…) if
-      you want first-class config over the generic JWKS path.
-- [ ] Replace the flat-file `MerchantStore` with a DB/secret-manager when scaling.
-- [ ] Deploy target + CI/CD for the hosted service (Dockerfile, health check).
+**Phase 2 shipped (multi-tenant):** one deployment serves many merchants by
+mapping the authenticated identity → merchant. Tenant map from `CLOVER_TENANTS_JSON`
+(env, persists on ephemeral hosts) or a file; identity from `CLOVER_TENANT_HEADER`
+(gateway platforms like Horizon) or `CLOVER_TENANT_CLAIM` (custom IdP); `whoami`
+probe. **Deployed on FastMCP Cloud / Horizon and sandbox-proven.**
+
+---
+
+## Plan to production multi-tenant (real merchants)
+
+Sequence: **(A) full API coverage → (B) security hardening → (C) go prod.** Do
+NOT host real merchants' data until B is done.
+
+### A. Expand API coverage (the main remaining build)
+Get the rest of the Clover surface behind tools before productionizing. Candidates
+(read-first): refund **reporting**, order line-item/discount detail, tenders & cash
+events, employee/role detail, merchant settings, item groups/options, tax rules.
+- ⚠️ Tension to decide: "everything in the API" conflicts with today's deliberate
+  **write exclusions** (refunds, payments, voids, deletes — see below). For a real
+  product, decide per-endpoint whether to add it read-only, add it write-with-
+  confirmation-UX, or keep it excluded.
+
+### B. Security hardening (REQUIRED before real merchants — none optional)
+- [ ] **Header-spoofing test/guard.** Header-based identity is only safe if the
+      gateway strips client-supplied `horizon-*` headers. Verify (send a spoofed
+      `horizon-user-email`, confirm `whoami` ignores it). If not stripped, do NOT
+      use header identity — switch to server-validated JWT (self-host) instead.
+- [ ] **Per-tenant credential isolation + encryption at rest** — don't keep all
+      merchants' tokens in one plaintext env blob; move to a DB/secret-manager,
+      ideally encrypted, least-privilege per tenant.
+- [ ] **Prefer cryptographic identity over forwarded headers** — a self-hosted
+      resource server that validates the JWT itself is stronger than trusting a
+      gateway header.
+- [ ] **Legal/compliance** — custodian of multiple merchants' credentials + customer
+      PII: data-protection duties, Clover developer-terms on multi-merchant
+      aggregation, updated disclaimers (current ones assume single-merchant).
+- [ ] **Per-tenant token refresh that survives restarts** (permanent API tokens, or
+      a persistent store) — env-blob can't rotate on ephemeral disk.
+- [ ] **Consider one-deploy-per-merchant** as the simpler, fully-isolated alternative
+      with zero spoofing surface — multi-tenant is a product decision, not a default.
+
+### C. Other hosted follow-ups
+- [ ] Pick + wire a concrete IdP provider module if self-hosting auth.
+- [ ] Deploy target + CI/CD (Dockerfile, health check) if leaving Horizon.
+- [ ] **OAuth onboarding** (auth-code + PKCE w/ hosted callback) to self-provision
+      each merchant's tenant row instead of editing `CLOVER_TENANTS_JSON` by hand.
+- [ ] **Webhook → SSE bridge** (optional) for push updates.
 
 ---
 
 ## Out of scope (deliberate non-goals)
 
 Refunds, voids, payment capture, charge creation, record deletes, the Ecommerce
-API, device-paired endpoints. Revisit only with proven confirmation UX.
+API, device-paired endpoints. Revisit only with proven confirmation UX — and note
+the "full API coverage" goal above forces an explicit decision on each of these.
