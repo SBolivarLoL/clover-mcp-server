@@ -51,22 +51,27 @@ async def test_all_scopes_ok_does_not_exit(wired: None, mock_http: respx.Router)
 
 
 @pytest.mark.asyncio
-async def test_missing_scope_exits(wired: None, mock_http: respx.Router) -> None:
+async def test_missing_scope_warns_but_does_not_crash(
+    wired: None, mock_http: respx.Router, capsys: pytest.CaptureFixture[str]
+) -> None:
     for p in _PROBES:
         mock_http.get(p).mock(return_value=httpx.Response(200, json={"elements": []}))
-    # items returns 403 → missing INVENTORY_R → exit
+    # items returns 403 → missing INVENTORY_R. Startup must NOT crash (hosted
+    # pre-flight needs the server to start); it warns and the tool 403s at call time.
     mock_http.get(f"{_M}/items").mock(
         return_value=httpx.Response(403, json={"message": "Missing INVENTORY_R"})
     )
-    with pytest.raises(SystemExit):
-        await server._check_permissions()
+    await server._check_permissions()  # must not raise
+    assert "Missing required Clover permissions" in capsys.readouterr().err
 
 
 @pytest.mark.asyncio
-async def test_bad_token_exits(wired: None, mock_http: respx.Router) -> None:
+async def test_bad_token_warns_but_does_not_crash(
+    wired: None, mock_http: respx.Router, capsys: pytest.CaptureFixture[str]
+) -> None:
     mock_http.get(_M).mock(return_value=httpx.Response(401, json={"message": "bad token"}))
-    with pytest.raises(SystemExit):
-        await server._check_permissions()
+    await server._check_permissions()  # must not raise — surfaces per tool call
+    assert "Invalid or expired Clover access token" in capsys.readouterr().err
 
 
 @pytest.mark.asyncio
