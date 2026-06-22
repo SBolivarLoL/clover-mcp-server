@@ -35,9 +35,12 @@ def _cfg() -> Config:
 
 @pytest.fixture
 def wired(mock_http: respx.Router) -> Iterator[None]:
-    server._client = CloverClient(_cfg())
+    cfg = _cfg()
+    server._config = cfg
+    server._client = CloverClient(cfg)
     yield
     server._client = None
+    server._config = None
 
 
 @pytest.mark.asyncio
