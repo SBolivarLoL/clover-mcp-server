@@ -17,21 +17,28 @@ def _pick(src: dict[str, Any], *keys: str) -> dict[str, Any]:
 
 
 def shape_merchant(raw: dict[str, Any]) -> dict[str, Any]:
-    return _pick(
+    out = _pick(
         raw,
         "id",
         "name",
-        "owner",
         "currency",
         "defaultCurrency",
         "timezone",
         "country",
-        "address",
         "phoneNumber",
         "website",
         "businessType",
         "merchantPlan",
     )
+    # Nested owner/address carry href fields (full API URLs with ids) — flatten to
+    # real fields only so they can't leak. See test_shaping_allowlist BANNED_KEYS.
+    if isinstance(raw.get("owner"), dict):
+        out["owner"] = _pick(raw["owner"], "id")
+    if isinstance(raw.get("address"), dict):
+        out["address"] = _pick(
+            raw["address"], "address1", "address2", "address3", "city", "state", "zip", "country"
+        )
+    return out
 
 
 def shape_item(raw: dict[str, Any]) -> dict[str, Any]:

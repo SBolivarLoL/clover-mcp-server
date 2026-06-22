@@ -147,7 +147,23 @@ def test_merchant_shaped_cleanly() -> None:
         "timezone": "America/New_York",
         "href": "https://api.clover.com/v3/merchants/M1",
         "internalSecret": "shhh",
+        "owner": {
+            "id": "OWNER1",
+            "href": "https://api.clover.com/v3/merchants/M1/employees/OWNER1",
+            "orders": {"href": "https://api.clover.com/v3/merchants/M1/orders"},
+        },
+        "address": {
+            "address1": "123 Main St",
+            "city": "Boston",
+            "state": "MA",
+            "zip": "02101",
+            "country": "US",
+            "href": "https://api.clover.com/v3/merchants/M1/address",
+        },
     }
     out = shape_merchant(raw)
     _assert_no_banned(out)
     assert "internalSecret" not in out
+    assert out["owner"] == {"id": "OWNER1"}
+    assert "href" not in out["address"]
+    assert out["address"]["city"] == "Boston"
