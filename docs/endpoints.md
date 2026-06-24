@@ -28,7 +28,7 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 | Endpoint | Method | Status | Notes |
 |---|---|---|---|
 | `/v3/merchants/{mId}/orders` | GET | ✅ | `{elements:[],href}`. Pagination offset/limit; page while `len==limit`. AND filters via **repeated** `?filter=X&filter=Y` (no `filter[]=`). Time: `filter=createdTime>=<ms>&filter=createdTime<=<ms>`. `state=open` valid. expand=lineItems,payments. Empty list → 200, never 404. |
-| `/v3/merchants/{mId}/orders/{orderId}` | GET | ✅ | expand=lineItems,payments. 404 body `{"message":"Not Found","details":"Order not found"}`. Never expand customers.cards. ⚠️ `serviceCharge` (expandable) is a **percentage** definition `{id,name,enabled,percentageDecimal}` — no per-order computed dollar amount, so service charges aren't summed in `get_sales_summary`. |
+| `/v3/merchants/{mId}/orders/{orderId}` | GET | ✅ | expand=lineItems,payments. `get_order` surfaces both `line_items` and `payments` (payments shaped via `shape_payment` → no card data). 404 body `{"message":"Not Found","details":"Order not found"}`. Never expand customers.cards. ⚠️ `serviceCharge` (expandable) is a **percentage** definition `{id,name,enabled,percentageDecimal}` — no per-order computed dollar amount, so service charges aren't summed in `get_sales_summary`. |
 
 ---
 
