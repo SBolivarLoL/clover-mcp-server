@@ -22,6 +22,7 @@ from clover_mcp.remote import (
     request_tenant_key,
     tenant_config,
 )
+from clover_mcp.resources import register_resources
 from clover_mcp.tools.ai import detect_sales_anomalies as _detect_sales_anomalies
 from clover_mcp.tools.ai import draft_customer_message as _draft_customer_message
 from clover_mcp.tools.ai import inventory_reorder_suggestions as _inventory_reorder_suggestions
@@ -106,6 +107,8 @@ mcp: FastMCP = FastMCP(
 
 # Layer 3 — predefined prompt workflows (no LLM call; they drive the read tools).
 register_prompts(mcp)
+# Layer 4 — capability cheat-sheet resource (clover://capabilities).
+register_resources(mcp)
 
 
 async def create_server() -> FastMCP:
@@ -293,19 +296,21 @@ async def get_merchant_info() -> dict[str, Any]:
 
 @mcp.tool(annotations=_READ)
 async def get_sales_summary(
+    ctx: Context,
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> dict[str, Any]:
     """Return an aggregated sales summary for the given date window.
 
     Defaults to today (UTC) when no dates are supplied. Uses 90-day chunking
-    so multi-month or full-year queries work transparently.
+    so multi-month or full-year queries work transparently (emits progress logs
+    when more than one window is scanned).
 
     Rules: only result=SUCCESS payments counted; voids/refunds reported separately;
     tips, taxes broken out; offline payments flagged; currency from merchant record.
     This tool does NOT support payment capture, refund, or void actions.
     """
-    return await _get_sales_summary(_get_client(), date_from=date_from, date_to=date_to)
+    return await _get_sales_summary(_get_client(), date_from=date_from, date_to=date_to, ctx=ctx)
 
 
 @mcp.tool(annotations=_READ)
