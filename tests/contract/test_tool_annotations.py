@@ -40,14 +40,20 @@ READ_TOOLS = [
     "list_shifts",
     "list_active_shifts",
     "list_roles",
+    # Layer 2 AI/LLM tools (sampling) — read-only (never write the model's output)
+    "summarize_sales",
+    "suggest_item_categories",
+    "inventory_reorder_suggestions",
+    "detect_sales_anomalies",
+    "draft_customer_message",
 ]
 WRITE_TOOLS = ["create_customer", "set_item_price_cents", "set_item_stock_quantity"]
 
 
 @pytest.mark.asyncio
 async def test_tool_inventory_is_complete() -> None:
-    """All 29 tools exist and every one is annotated."""
-    assert len(READ_TOOLS + WRITE_TOOLS) == 29
+    """All 34 tools exist and every one is annotated."""
+    assert len(READ_TOOLS + WRITE_TOOLS) == 34
     for name in READ_TOOLS + WRITE_TOOLS:
         ann = (await server.mcp.get_tool(name)).annotations
         assert ann is not None, f"{name} has no annotations"
