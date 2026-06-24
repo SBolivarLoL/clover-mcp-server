@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Added — Layer 1 guarded writes + Layer 4 elicitation
+- Five guarded write tools (all validate → dry_run preview → **confirm before
+  writing**): `create_category`, `create_item`, `create_order`, `add_line_item`,
+  `update_customer`. Sandbox-verified live end-to-end 2026-06-24.
+- **Confirmation gate** (`confirm.py`): writes confirm via MCP **elicitation**
+  (`ctx.elicit`) — the MCP-native guardrail — or an explicit `confirm=True`
+  override. Fail-closed: with neither an accepted elicitation nor `confirm=True`,
+  the write is refused (`confirmation_required`).
+- Still excluded by design: payment capture, refunds, voids, charge creation,
+  record deletes, gateway config. `update_customer` uses POST (Clover returns 405
+  on PUT/PATCH); email/phone are sub-resources and are not modified here.
+
 ### Added — Layer 3 prompts (MCP prompts capability)
 - Six predefined `@mcp.prompt` workflows that drive the existing read tools so a
   merchant's agent runs common jobs out of the box (no LLM call inside a prompt):

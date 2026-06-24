@@ -6,10 +6,14 @@ requested via the *include* parameter.  This is enforced by shape_customer().
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from clover_mcp.client import CloverClient
+from clover_mcp.confirm import confirm_write, confirmation_required
 from clover_mcp.shaping import shape_customer
+
+if TYPE_CHECKING:
+    from fastmcp import Context
 
 # Fields the Clover API supports for customer filtering (verified in endpoint audit)
 # Supported: customerSince, deletedTime, emailAddress, firstName, fullName,
@@ -126,6 +130,52 @@ async def create_customer(
         expand=_EXPAND_DEFAULT,
     )
     return {"created": True, "customer": shape_customer(raw)}
+
+
+async def update_customer(
+    client: CloverClient,
+    ctx: Context | None,
+    customer_id: str,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    marketing_allowed: bool | None = None,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Update a customer's name and/or marketing opt-in.
+
+    Only the fields you pass are changed (others are left as-is). Clover updates a
+    customer via POST to /customers/{id} (PUT/PATCH return 405). Email/phone are
+    sub-resources and are NOT changed here. Previews on dry_run, then asks for
+    confirmation (MCP elicitation, or confirm=True) before writing.
+
+    Requires CUSTOMERS_W. Card data is never returned.
+    """
+    if not customer_id or not customer_id.strip():
+        raise ValueError("customer_id must not be empty")
+
+    body: dict[str, Any] = {}
+    if first_name is not None:
+        body["firstName"] = first_name
+    if last_name is not None:
+        body["lastName"] = last_name
+    if marketing_allowed is not None:
+        body["marketingAllowed"] = marketing_allowed
+    if not body:
+        raise ValueError("nothing to update — pass first_name, last_name, or marketing_allowed")
+
+    path = f"/customers/{customer_id}"
+    if dry_run:
+        return {"ok": True, "dry_run": True, "would_post_path": path, "would_post_body": body}
+
+    approved, how = await confirm_write(
+        ctx, f"Update customer {customer_id}: {body}?", confirm=confirm
+    )
+    if not approved:
+        return confirmation_required(how)
+
+    raw = await client.post(path, json=body, expand=_EXPAND_DEFAULT)
+    return {"ok": True, "customer": shape_customer(raw)}
 
 
 async def get_customer(

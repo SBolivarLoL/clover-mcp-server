@@ -30,11 +30,14 @@ from clover_mcp.tools.ai import summarize_sales as _summarize_sales
 from clover_mcp.tools.customers import create_customer as _create_customer
 from clover_mcp.tools.customers import get_customer as _get_customer
 from clover_mcp.tools.customers import search_customers as _search_customers
+from clover_mcp.tools.customers import update_customer as _update_customer
 from clover_mcp.tools.employees import get_employee as _get_employee
 from clover_mcp.tools.employees import list_active_shifts as _list_active_shifts
 from clover_mcp.tools.employees import list_employees as _list_employees
 from clover_mcp.tools.employees import list_roles as _list_roles
 from clover_mcp.tools.employees import list_shifts as _list_shifts
+from clover_mcp.tools.inventory import create_category as _create_category
+from clover_mcp.tools.inventory import create_item as _create_item
 from clover_mcp.tools.inventory import get_item as _get_item
 from clover_mcp.tools.inventory import list_attributes as _list_attributes
 from clover_mcp.tools.inventory import list_categories as _list_categories
@@ -53,6 +56,8 @@ from clover_mcp.tools.merchant import list_devices as _list_devices
 from clover_mcp.tools.merchant import list_opening_hours as _list_opening_hours
 from clover_mcp.tools.merchant import list_order_types as _list_order_types
 from clover_mcp.tools.merchant import list_tenders as _list_tenders
+from clover_mcp.tools.orders import add_line_item as _add_line_item
+from clover_mcp.tools.orders import create_order as _create_order
 from clover_mcp.tools.orders import get_order as _get_order
 from clover_mcp.tools.orders import list_open_orders as _list_open_orders
 from clover_mcp.tools.orders import list_orders as _list_orders
@@ -707,4 +712,89 @@ async def set_item_stock_quantity(
     """
     return await _set_item_stock_quantity(
         _get_client(), item_id, new_quantity, expected_current_quantity, dry_run
+    )
+
+
+# ── Guarded creates + updates (Layer 1 writes + Layer 4 elicitation) ───────────
+# Each validates, supports dry_run preview, and confirms before writing via MCP
+# elicitation (ctx.elicit) — or an explicit confirm=True override. They never
+# capture payments, issue refunds, or delete records.
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def create_category(
+    ctx: Context, name: str, dry_run: bool = False, confirm: bool = False
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new inventory category.
+
+    Previews on dry_run; confirms via your client's prompt (MCP elicitation) or
+    confirm=True before writing. Requires INVENTORY_W.
+    """
+    return await _create_category(_get_client(), ctx, name, dry_run=dry_run, confirm=confirm)
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def create_item(
+    ctx: Context, name: str, price_cents: int, dry_run: bool = False, confirm: bool = False
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new inventory item (name + price in cents).
+
+    Bounds 0–100_000_000 cents. Previews on dry_run; confirms via MCP elicitation
+    or confirm=True before writing. Requires INVENTORY_W.
+    """
+    return await _create_item(
+        _get_client(), ctx, name, price_cents, dry_run=dry_run, confirm=confirm
+    )
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def create_order(
+    ctx: Context, note: str | None = None, dry_run: bool = False, confirm: bool = False
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new open order (no line items, no payment).
+
+    Previews on dry_run; confirms via MCP elicitation or confirm=True before
+    writing. Add items with add_line_item. Requires ORDERS_W.
+    """
+    return await _create_order(_get_client(), ctx, note=note, dry_run=dry_run, confirm=confirm)
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def add_line_item(
+    ctx: Context, order_id: str, item_id: str, dry_run: bool = False, confirm: bool = False
+) -> dict[str, Any]:
+    """Modifies merchant data. Add a catalog item as a line item to an order.
+
+    Name/price are copied from the catalog item. Previews on dry_run; confirms via
+    MCP elicitation or confirm=True before writing. Requires ORDERS_W. No payment.
+    """
+    return await _add_line_item(
+        _get_client(), ctx, order_id, item_id, dry_run=dry_run, confirm=confirm
+    )
+
+
+@mcp.tool(annotations=_WRITE_SET)
+async def update_customer(
+    ctx: Context,
+    customer_id: str,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    marketing_allowed: bool | None = None,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Update a customer's name and/or marketing opt-in.
+
+    Only the fields you pass change. Previews on dry_run; confirms via MCP
+    elicitation or confirm=True before writing. Requires CUSTOMERS_W.
+    """
+    return await _update_customer(
+        _get_client(),
+        ctx,
+        customer_id,
+        first_name=first_name,
+        last_name=last_name,
+        marketing_allowed=marketing_allowed,
+        dry_run=dry_run,
+        confirm=confirm,
     )

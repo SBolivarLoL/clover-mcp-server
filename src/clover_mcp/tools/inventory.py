@@ -5,9 +5,10 @@ Write tools: set_item_price_cents, set_item_stock_quantity — require INVENTORY
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from clover_mcp.client import CloverClient
+from clover_mcp.confirm import confirm_write, confirmation_required
 from clover_mcp.shaping import (
     shape_attribute,
     shape_category,
@@ -17,6 +18,9 @@ from clover_mcp.shaping import (
     shape_tag,
     shape_tax,
 )
+
+if TYPE_CHECKING:
+    from fastmcp import Context
 
 
 async def list_items(
@@ -161,6 +165,77 @@ async def list_tags(client: CloverClient) -> dict[str, Any]:
 
 _PRICE_MAX = 100_000_000  # $1 000 000.00 in cents
 _STOCK_MAX = 1_000_000
+
+
+async def create_category(
+    client: CloverClient,
+    ctx: Context | None,
+    name: str,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new inventory category.
+
+    Validates a non-empty name, previews on dry_run, then asks for confirmation
+    (MCP elicitation, or confirm=True) before POSTing. Requires INVENTORY_W.
+    """
+    name = name.strip()
+    if not name:
+        raise ValueError("name must not be empty")
+
+    body = {"name": name}
+    if dry_run:
+        return {
+            "ok": True,
+            "dry_run": True,
+            "would_post_path": "/categories",
+            "would_post_body": body,
+        }
+
+    approved, how = await confirm_write(ctx, f"Create category '{name}'?", confirm=confirm)
+    if not approved:
+        return confirmation_required(how)
+
+    raw = await client.post("/categories", json=body)
+    return {"ok": True, "category": shape_category(raw)}
+
+
+async def create_item(
+    client: CloverClient,
+    ctx: Context | None,
+    name: str,
+    price_cents: int,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new inventory item.
+
+    Bounds: 0 <= price_cents <= 100_000_000. Validates a non-empty name, previews
+    on dry_run, then asks for confirmation (MCP elicitation, or confirm=True)
+    before POSTing. Requires INVENTORY_W.
+    """
+    name = name.strip()
+    if not name:
+        raise ValueError("name must not be empty")
+    if not (0 <= price_cents <= _PRICE_MAX):
+        return {
+            "ok": False,
+            "reason": "bounds_violation",
+            "message": f"price_cents {price_cents} is out of bounds (0 – {_PRICE_MAX}).",
+        }
+
+    body = {"name": name, "price": price_cents}
+    if dry_run:
+        return {"ok": True, "dry_run": True, "would_post_path": "/items", "would_post_body": body}
+
+    approved, how = await confirm_write(
+        ctx, f"Create item '{name}' priced at {price_cents} cents?", confirm=confirm
+    )
+    if not approved:
+        return confirmation_required(how)
+
+    raw = await client.post("/items", json=body)
+    return {"ok": True, "item": shape_item(raw)}
 
 
 async def set_item_price_cents(
