@@ -14,6 +14,7 @@ from mcp.types import ToolAnnotations
 from clover_mcp.client import CloverClient
 from clover_mcp.config import Config, load_config
 from clover_mcp.errors import CloverAPIError
+from clover_mcp.prompts import register_prompts
 from clover_mcp.remote import (
     auth_context,
     build_auth_provider,
@@ -87,6 +88,9 @@ mcp: FastMCP = FastMCP(
     lifespan=_lifespan,
     auth=_auth,
 )
+
+# Layer 3 — predefined prompt workflows (no LLM call; they drive the read tools).
+register_prompts(mcp)
 
 
 async def create_server() -> FastMCP:
