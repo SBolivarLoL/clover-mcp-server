@@ -92,6 +92,11 @@ def shape_order(raw: dict[str, Any]) -> dict[str, Any]:
         items = raw["lineItems"]
         elements = items.get("elements", items) if isinstance(items, dict) else items
         out["line_items"] = [_shape_line_item(li) for li in elements if isinstance(li, dict)]
+    # Payments — get_order expands these; shape via shape_payment (strips cardTransaction)
+    if "payments" in raw:
+        pmts = raw["payments"]
+        elements = pmts.get("elements", pmts) if isinstance(pmts, dict) else pmts
+        out["payments"] = [shape_payment(p) for p in elements if isinstance(p, dict)]
     # Service charges total
     if "serviceCharge" in raw and isinstance(raw["serviceCharge"], dict):
         out["service_charge"] = raw["serviceCharge"].get("amount")
