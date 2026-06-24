@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [0.4.0] — 2026-06-24
+Agent-ready release: the server now spans all four MCP capability layers — tools
+(reads + guarded writes), AI/LLM tools via client sampling, predefined prompts,
+and elicitation/resources — so a merchant can run their Clover business by
+conversation. 44 tools, 6 prompts, 1 resource.
+
 ### Added — Layer 4 capabilities (resource + logging)
 - **`clover://capabilities`** MCP resource: a read-only cheat-sheet (tools split
   read/write, prompts, guardrails, hard exclusions) built live from the registry
@@ -180,6 +187,7 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 - Employee/shift tools (planned v1.1), multi-merchant hosted mode + MCP-level
   OAuth 2.1 (planned v2).
 
-[Unreleased]: https://github.com/SBolivarLoL/clover-mcp-server/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/SBolivarLoL/clover-mcp-server/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/SBolivarLoL/clover-mcp-server/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/SBolivarLoL/clover-mcp-server/compare/v0.2.0...v0.3.0
 [0.1.0]: https://github.com/SBolivarLoL/clover-mcp-server/releases/tag/v0.1.0

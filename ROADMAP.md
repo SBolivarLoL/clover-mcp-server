@@ -183,7 +183,7 @@ chains them deterministically.
 ## Layer 4 — MCP capabilities checklist (what makes v1.0 "complete")
 
 A complete agent-ready server:
-- [x] **Tools** — 44 (39 read + 5 guarded write), allowlist-shaped, annotated.
+- [x] **Tools** — 44 (36 read-only incl. 5 AI/sampling + 8 guarded write), allowlist-shaped, annotated.
 - [x] **Prompts** — Layer 3. Six `@mcp.prompt` workflows shipped.
 - [x] **Sampling** — Layer 2 (client-side LLM; server stays key-free). Five tools shipped.
 - [x] **Elicitation** — mid-tool confirmation for guarded writes (`confirm.py`,
