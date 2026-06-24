@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import Any
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 
 from clover_mcp.client import CloverClient
@@ -22,6 +22,11 @@ from clover_mcp.remote import (
     request_tenant_key,
     tenant_config,
 )
+from clover_mcp.tools.ai import detect_sales_anomalies as _detect_sales_anomalies
+from clover_mcp.tools.ai import draft_customer_message as _draft_customer_message
+from clover_mcp.tools.ai import inventory_reorder_suggestions as _inventory_reorder_suggestions
+from clover_mcp.tools.ai import suggest_item_categories as _suggest_item_categories
+from clover_mcp.tools.ai import summarize_sales as _summarize_sales
 from clover_mcp.tools.customers import create_customer as _create_customer
 from clover_mcp.tools.customers import get_customer as _get_customer
 from clover_mcp.tools.customers import search_customers as _search_customers
@@ -511,6 +516,79 @@ async def get_customer(customer_id: str, include: list[str] | None = None) -> di
     Cards are never returned. Requires CUSTOMERS_R.
     """
     return await _get_customer(_get_client(), customer_id, include=include)
+
+
+# ── AI/LLM tools (Layer 2 — MCP sampling) ─────────────────────────────────────
+# These gather Clover data, then ask the CONNECTED CLIENT's model to reason via
+# ctx.sample() — the server holds no LLM key. Read-only (annotated _READ): they
+# never write the model's output back. If the client can't sample, they return
+# the raw data with a note instead of failing.
+
+
+@mcp.tool(annotations=_READ)
+async def summarize_sales(
+    ctx: Context,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """AI: plain-language sales briefing for a date window (default: today).
+
+    Gathers the sales summary + top items, then asks your client's model to write
+    a short narrative. Read-only suggestion. Needs a sampling-capable client; if
+    yours can't sample, returns the raw data with a note. Requires ORDERS_R/PAYMENTS_R.
+    """
+    return await _summarize_sales(_get_client(), ctx, date_from=date_from, date_to=date_to)
+
+
+@mcp.tool(annotations=_READ)
+async def suggest_item_categories(ctx: Context, limit: int = 100) -> dict[str, Any]:
+    """AI: suggest categories for uncategorized items from the merchant's own taxonomy.
+
+    Suggestion only — applying a category is a separate, confirmed write. Needs a
+    sampling-capable client (graceful fallback otherwise). Requires INVENTORY_R.
+    """
+    return await _suggest_item_categories(_get_client(), ctx, limit=limit)
+
+
+@mcp.tool(annotations=_READ)
+async def inventory_reorder_suggestions(
+    ctx: Context,
+    threshold: int = 5,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """AI: prioritized reorder list — low-stock items crossed with sales velocity.
+
+    Read-only suggestion. Needs a sampling-capable client (graceful fallback
+    otherwise). Requires INVENTORY_R and ORDERS_R.
+    """
+    return await _inventory_reorder_suggestions(
+        _get_client(), ctx, threshold=threshold, date_from=date_from, date_to=date_to
+    )
+
+
+@mcp.tool(annotations=_READ)
+async def detect_sales_anomalies(
+    ctx: Context,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """AI: flag unusual refund / discount / sales patterns in a window (default: today).
+
+    Read-only analysis. Needs a sampling-capable client (graceful fallback
+    otherwise). Requires PAYMENTS_R and ORDERS_R.
+    """
+    return await _detect_sales_anomalies(_get_client(), ctx, date_from=date_from, date_to=date_to)
+
+
+@mcp.tool(annotations=_READ)
+async def draft_customer_message(ctx: Context, customer_id: str, intent: str) -> dict[str, Any]:
+    """AI: draft a customer message (promo / win-back / thank-you) for the given intent.
+
+    Returns a DRAFT only — never sends anything. Needs a sampling-capable client
+    (graceful fallback otherwise). Requires CUSTOMERS_R.
+    """
+    return await _draft_customer_message(_get_client(), ctx, customer_id=customer_id, intent=intent)
 
 
 # NOTE: the process entry point is clover_mcp.__main__:main (calls mcp.run()).
