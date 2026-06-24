@@ -148,7 +148,15 @@ def shape_refund(raw: dict[str, Any]) -> dict[str, Any]:
 def shape_tender(raw: dict[str, Any]) -> dict[str, Any]:
     """Project a tender type (payment method: cash, credit, custom, …)."""
     return _pick(
-        raw, "id", "label", "labelKey", "enabled", "opensCashDrawer", "editable", "visible"
+        raw,
+        "id",
+        "label",
+        "labelKey",
+        "enabled",
+        "opensCashDrawer",
+        "editable",
+        "visible",
+        "supportsCashDiscount",
     )
 
 

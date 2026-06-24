@@ -72,6 +72,7 @@ async def test_list_tenders(client: CloverClient, mock_http: respx.Router) -> No
         return_value=httpx.Response(
             200,
             json={
+                # Sandbox-verified element shape (2026-06-24)
                 "elements": [
                     {
                         "id": "T1",
@@ -79,7 +80,10 @@ async def test_list_tenders(client: CloverClient, mock_http: respx.Router) -> No
                         "labelKey": "com.clover.tender.cash",
                         "enabled": True,
                         "opensCashDrawer": True,
-                        "secret": "drop-me",
+                        "editable": False,
+                        "visible": True,
+                        "supportsCashDiscount": False,
+                        "href": "https://sandbox.dev.clover.com/v3/merchants/M1/tenders/T1",
                     }
                 ]
             },
@@ -92,4 +96,5 @@ async def test_list_tenders(client: CloverClient, mock_http: respx.Router) -> No
     t = result["tenders"][0]
     assert t["label"] == "Cash"
     assert t["opensCashDrawer"] is True
-    assert "secret" not in t  # allowlist drops everything else
+    assert t["supportsCashDiscount"] is False
+    assert "href" not in t  # allowlist drops href and everything else
