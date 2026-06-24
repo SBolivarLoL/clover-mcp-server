@@ -17,6 +17,11 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   dropped by the shaper.
 - **`list_tenders`** (MERCHANT_R): list the merchant's tender types (cash,
   credit, custom payment methods).
+- **`list_roles`** (EMPLOYEES_R): list employee roles (name + system role).
+- **`get_merchant_properties`** (MERCHANT_R): merchant POS settings (currency,
+  tips, stock tracking, closeout, locale, support contacts). The shaper allowlist
+  deliberately excludes the banking/account fields in the raw payload.
+- **`list_item_groups`** (INVENTORY_R): list item groups (item variant sets).
 
 ### Added — multi-tenant (v2 phase 2)
 - Map each authenticated request to its own Clover merchant by token identity,

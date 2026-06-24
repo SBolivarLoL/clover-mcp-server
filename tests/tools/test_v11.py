@@ -12,9 +12,15 @@ from clover_mcp.tools.employees import (
     get_employee,
     list_active_shifts,
     list_employees,
+    list_roles,
     list_shifts,
 )
-from clover_mcp.tools.inventory import list_categories, list_modifiers, list_taxes
+from clover_mcp.tools.inventory import (
+    list_categories,
+    list_item_groups,
+    list_modifiers,
+    list_taxes,
+)
 from clover_mcp.tools.merchant import list_devices
 from clover_mcp.tools.reporting import get_top_items
 from tests.conftest import TEST_MERCHANT_ID
@@ -205,3 +211,51 @@ async def test_get_top_items_ranks_by_units(client: CloverClient, mock_http: res
 async def test_get_top_items_bad_top_n(client: CloverClient, mock_http: respx.Router) -> None:
     with pytest.raises(ValueError, match="top_n must be between"):
         await get_top_items(client, top_n=0)
+
+
+# ── §A coverage: roles / item_groups ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_roles(client: CloverClient, mock_http: respx.Router) -> None:
+    mock_http.get(_p("/roles")).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "elements": [
+                    {
+                        "id": "R1",
+                        "name": "Manager",
+                        "systemRole": "MANAGER",
+                        "href": "https://sandbox.dev.clover.com/v3/merchants/M1/roles/R1",
+                        "merchant": {},
+                    }
+                ]
+            },
+        )
+    )
+    result = await list_roles(client)
+    assert result["count"] == 1
+    r = result["roles"][0]
+    assert r["name"] == "Manager"
+    assert r["systemRole"] == "MANAGER"
+    assert "href" not in r  # allowlist drops href + merchant
+
+
+@pytest.mark.asyncio
+async def test_list_item_groups_empty(client: CloverClient, mock_http: respx.Router) -> None:
+    """Sandbox returns an empty item_groups list — must not error."""
+    mock_http.get(_p("/item_groups")).mock(return_value=httpx.Response(200, json={"elements": []}))
+    result = await list_item_groups(client)
+    assert result == {"item_groups": [], "count": 0}
+
+
+@pytest.mark.asyncio
+async def test_list_item_groups_shaped(client: CloverClient, mock_http: respx.Router) -> None:
+    mock_http.get(_p("/item_groups")).mock(
+        return_value=httpx.Response(
+            200, json={"elements": [{"id": "G1", "name": "T-Shirt", "items": {"elements": []}}]}
+        )
+    )
+    result = await list_item_groups(client)
+    assert result["item_groups"][0] == {"id": "G1", "name": "T-Shirt"}

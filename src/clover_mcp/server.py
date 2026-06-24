@@ -27,9 +27,11 @@ from clover_mcp.tools.customers import search_customers as _search_customers
 from clover_mcp.tools.employees import get_employee as _get_employee
 from clover_mcp.tools.employees import list_active_shifts as _list_active_shifts
 from clover_mcp.tools.employees import list_employees as _list_employees
+from clover_mcp.tools.employees import list_roles as _list_roles
 from clover_mcp.tools.employees import list_shifts as _list_shifts
 from clover_mcp.tools.inventory import get_item as _get_item
 from clover_mcp.tools.inventory import list_categories as _list_categories
+from clover_mcp.tools.inventory import list_item_groups as _list_item_groups
 from clover_mcp.tools.inventory import list_items as _list_items
 from clover_mcp.tools.inventory import list_low_stock_items as _list_low_stock_items
 from clover_mcp.tools.inventory import list_modifiers as _list_modifiers
@@ -37,6 +39,7 @@ from clover_mcp.tools.inventory import list_taxes as _list_taxes
 from clover_mcp.tools.inventory import set_item_price_cents as _set_item_price_cents
 from clover_mcp.tools.inventory import set_item_stock_quantity as _set_item_stock_quantity
 from clover_mcp.tools.merchant import get_merchant_info as _get_merchant_info
+from clover_mcp.tools.merchant import get_merchant_properties as _get_merchant_properties
 from clover_mcp.tools.merchant import list_devices as _list_devices
 from clover_mcp.tools.merchant import list_tenders as _list_tenders
 from clover_mcp.tools.orders import get_order as _get_order
@@ -396,6 +399,12 @@ async def list_modifiers() -> dict[str, Any]:
 
 
 @mcp.tool(annotations=_READ)
+async def list_item_groups() -> dict[str, Any]:
+    """Return item groups (sets of item variants, e.g. size/color). Requires INVENTORY_R."""
+    return await _list_item_groups(_get_client())
+
+
+@mcp.tool(annotations=_READ)
 async def list_taxes() -> dict[str, Any]:
     """Return the merchant's tax rates (raw rate + computed percent). Requires INVENTORY_R."""
     return await _list_taxes(_get_client())
@@ -411,6 +420,14 @@ async def list_devices() -> dict[str, Any]:
 async def list_tenders() -> dict[str, Any]:
     """Return the merchant's tender types (payment methods: cash, credit, custom). Requires MERCHANT_R."""
     return await _list_tenders(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def get_merchant_properties() -> dict[str, Any]:
+    """Return the merchant's POS configuration (currency, tips, stock tracking,
+    closeout, locale, support contacts). Banking/account fields are never returned.
+    Requires MERCHANT_R."""
+    return await _get_merchant_properties(_get_client())
 
 
 @mcp.tool(annotations=_READ)
@@ -458,6 +475,12 @@ async def list_shifts(
 async def list_active_shifts() -> dict[str, Any]:
     """Return currently open shifts (clocked in, not out) across all employees. Requires EMPLOYEES_R."""
     return await _list_active_shifts(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_roles() -> dict[str, Any]:
+    """Return the merchant's employee roles (name + system role category). Requires EMPLOYEES_R."""
+    return await _list_roles(_get_client())
 
 
 @mcp.tool(annotations=_READ)

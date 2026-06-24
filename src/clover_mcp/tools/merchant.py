@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from clover_mcp.client import CloverClient
-from clover_mcp.shaping import shape_device, shape_merchant, shape_tender
+from clover_mcp.shaping import (
+    shape_device,
+    shape_merchant,
+    shape_merchant_properties,
+    shape_tender,
+)
 
 
 async def get_merchant_info(client: CloverClient) -> dict[str, Any]:
@@ -33,3 +38,11 @@ async def list_tenders(client: CloverClient) -> dict[str, Any]:
     async for el in client.iterate("/tenders", limit=100):
         tenders.append(shape_tender(el))
     return {"tenders": tenders, "count": len(tenders)}
+
+
+async def get_merchant_properties(client: CloverClient) -> dict[str, Any]:
+    """Return the merchant's POS configuration settings (currency, tips, stock
+    tracking, closeout, locale, support contacts). Banking/account fields are
+    never returned. Requires MERCHANT_R."""
+    raw = await client.get("/properties")
+    return shape_merchant_properties(raw)

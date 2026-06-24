@@ -11,11 +11,14 @@ from clover_mcp.shaping import (
     shape_device,
     shape_employee,
     shape_item,
+    shape_item_group,
     shape_merchant,
+    shape_merchant_properties,
     shape_modifier_group,
     shape_order,
     shape_payment,
     shape_refund,
+    shape_role,
     shape_shift,
     shape_tax,
     shape_tender,
@@ -144,8 +147,33 @@ def test_v11_list_shapers_strip_href() -> None:
         shape_tax,
         shape_refund,
         shape_tender,
+        shape_role,
+        shape_item_group,
     ):
         _assert_no_banned(shaper(dict(dirty)))
+
+
+def test_merchant_properties_drops_banking_fields() -> None:
+    """Merchant /properties carries banking/account numbers — they must never
+    surface through the allowlist."""
+    raw = {
+        "defaultCurrency": "USD",
+        "timezone": "America/Chicago",
+        "tipsEnabled": True,
+        "supportPhone": "+1 555 0100",
+        # sensitive — must be dropped
+        "abaAccountNumber": "000000000000000",
+        "ddaAccountNumber": "***********3770",
+        "href": "https://api.clover.com/v3/merchants/M1/properties",
+        "merchantRef": {"id": "M1"},
+    }
+    out = shape_merchant_properties(raw)
+    _assert_no_banned(out)
+    assert out["defaultCurrency"] == "USD"
+    assert out["tipsEnabled"] is True
+    assert "abaAccountNumber" not in out
+    assert "ddaAccountNumber" not in out
+    assert "merchantRef" not in out
 
 
 def test_merchant_shaped_cleanly() -> None:
