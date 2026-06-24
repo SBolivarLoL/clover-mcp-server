@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Security — multi-tenant hardening (REQUIRED before hosting real merchants)
+- **Forwarded-header identity is now fail-closed.** Routing tenants by a gateway
+  header (`CLOVER_TENANT_HEADER`, e.g. `horizon-user-email`) is a spoofing risk
+  unless the gateway strips client-supplied copies. The server now refuses to start
+  **and** refuses per request unless `CLOVER_TRUST_IDENTITY_HEADER=true` is set — an
+  explicit opt-in after running the header-spoofing test. `whoami` surfaces the
+  trust state and the test procedure. (Existing header-based multi-tenant deploys
+  must set this flag after verifying their gateway.)
+- **Per-tenant credential isolation.** Tenant entries can reference each token by
+  its own env var (`access_token_env` / `refresh_token_env`) instead of inlining
+  every merchant's plaintext token in one `CLOVER_TENANTS_JSON` blob — so each
+  secret can be injected individually from a secret manager. Missing reference →
+  fail closed.
+- **docs/SECURITY.md** — vulnerability reporting + the full multi-tenant hardening
+  checklist (spoofing test, prefer-JWT-over-header, encryption-at-rest, one-deploy-
+  per-merchant, custodial legal duties).
 
 ## [0.4.0] — 2026-06-24
 Agent-ready release: the server now spans all four MCP capability layers — tools

@@ -208,23 +208,23 @@ concrete endpoint-by-endpoint inventory (what's covered, what's missing, read vs
 guarded-write). That is the bulk of the pre-prod build.
 
 ### B. Security hardening (REQUIRED before real merchants — none optional)
-- [ ] **Header-spoofing test/guard.** Header-based identity is only safe if the
-      gateway strips client-supplied `horizon-*` headers. Verify (send a spoofed
-      `horizon-user-email`, confirm `whoami` ignores it). If not stripped, do NOT
-      use header identity — switch to server-validated JWT (self-host) instead.
-- [ ] **Per-tenant credential isolation + encryption at rest** — don't keep all
-      merchants' tokens in one plaintext env blob; move to a DB/secret-manager,
-      ideally encrypted, least-privilege per tenant.
-- [ ] **Prefer cryptographic identity over forwarded headers** — a self-hosted
-      resource server that validates the JWT itself is stronger than trusting a
-      gateway header.
-- [ ] **Legal/compliance** — custodian of multiple merchants' credentials + customer
-      PII: data-protection duties, Clover developer-terms on multi-merchant
-      aggregation, updated disclaimers (current ones assume single-merchant).
-- [ ] **Per-tenant token refresh that survives restarts** (permanent API tokens, or
-      a persistent store) — env-blob can't rotate on ephemeral disk.
-- [ ] **Consider one-deploy-per-merchant** as the simpler, fully-isolated alternative
-      with zero spoofing surface — multi-tenant is a product decision, not a default.
+See **[docs/SECURITY.md](docs/SECURITY.md)** for the full checklist + procedures.
+- [x] **Header-spoofing guard.** Header routing now **fails closed** — refuses to
+      start and refuses per request unless `CLOVER_TRUST_IDENTITY_HEADER=true` (opt-in
+      after verifying the gateway strips client copies). `whoami` emits the spoofing
+      test procedure. ⚙️ Operator must still **run the test** on their gateway.
+- [x] **Per-tenant credential isolation** — tenant entries can reference each token by
+      its own env var (`access_token_env`/`refresh_token_env`) instead of one plaintext
+      blob. ⚙️ Operator wires those to a secret-manager (encryption at rest is an ops
+      task — see SECURITY.md).
+- [x] **Prefer cryptographic identity over forwarded headers** — documented + enforced:
+      validated-JWT identity (self-host) needs no trust flag; header routing does.
+- [ ] 📋 **Legal/compliance** — custodian duties (data-protection, Clover terms,
+      disclaimers). Documented in SECURITY.md; requires counsel sign-off, not code.
+- [x] **Per-tenant token refresh that survives restarts** — permanent API tokens
+      (default) + env/secret-manager references survive ephemeral-disk restarts.
+- [x] **One-deploy-per-merchant** documented as the simplest zero-spoofing-surface
+      alternative (SECURITY.md §5).
 
 ### C. Other hosted follow-ups
 - [ ] Pick + wire a concrete IdP provider module if self-hosting auth.

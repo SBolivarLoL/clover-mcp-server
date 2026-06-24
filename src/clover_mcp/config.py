@@ -69,6 +69,11 @@ class Config:
     # and forwards an identity HTTP header, not a token). If set, the tenant key is
     # read from this request header instead of the token claim.
     tenant_header: str = ""
+    # SECURITY: routing tenants by a forwarded header is only safe if the gateway
+    # STRIPS any client-supplied copy of that header — otherwise a client can spoof
+    # it and read another merchant's data. This must be set to true to opt in, after
+    # verifying the gateway strips it (see docs/SECURITY.md). Fail-closed default.
+    trust_identity_header: bool = False
     base_url: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -97,9 +102,24 @@ def load_config() -> Config:
 
     transport = optional("CLOVER_TRANSPORT", "stdio").lower()
     multi_merchant = truthy("CLOVER_MULTI_MERCHANT")
+    tenant_header = optional("CLOVER_TENANT_HEADER")
+    trust_identity_header = truthy("CLOVER_TRUST_IDENTITY_HEADER")
 
     if transport not in ("stdio", "http"):
         errors.append(f"  • CLOVER_TRANSPORT must be 'stdio' or 'http', got {transport!r}")
+
+    # SECURITY (fail-closed): routing tenants by a forwarded HTTP header is a
+    # spoofing risk unless the gateway strips client-supplied copies. Refuse to
+    # start with header routing unless the operator has explicitly opted in after
+    # verifying that (docs/SECURITY.md). Without this, a client could set the
+    # header itself and read another merchant's data.
+    if tenant_header and not trust_identity_header:
+        errors.append(
+            f"  • CLOVER_TENANT_HEADER={tenant_header!r} routes tenants by a forwarded HTTP "
+            "header. This is only safe if your gateway strips client-supplied copies of it. "
+            "Verify (docs/SECURITY.md → header-spoofing test), then set "
+            "CLOVER_TRUST_IDENTITY_HEADER=true to opt in. Refusing to start otherwise."
+        )
     # multi_merchant routes by the authenticated request's identity, so it needs an
     # auth layer — either ours (CLOVER_TRANSPORT=http + IdP) or a managed platform
     # like FastMCP Cloud / Horizon (which provides auth even with transport unset).
@@ -192,5 +212,6 @@ def load_config() -> Config:
         merchant_claim=optional("CLOVER_MERCHANT_CLAIM", "clover_merchant_id"),
         merchant_store=merchant_store,
         tenant_claim=optional("CLOVER_TENANT_CLAIM"),
-        tenant_header=optional("CLOVER_TENANT_HEADER"),
+        tenant_header=tenant_header,
+        trust_identity_header=trust_identity_header,
     )

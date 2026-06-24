@@ -79,11 +79,21 @@ to a JSON object keyed by that identity value, each entry holding the merchant's
 **permanent** token:
 ```
 CLOVER_TENANT_HEADER=x-forwarded-email
+CLOVER_TRUST_IDENTITY_HEADER=true
 CLOVER_TENANTS_JSON={"you@store.com":{"merchant_id":"ABC123","access_token":"<permanent>","sandbox":false,"region":"na"},"other@store.com":{"merchant_id":"XYZ789","access_token":"<permanent>"}}
 ```
 Redeploy. Each authenticated user now transparently gets *their* merchant's data;
 an unmapped user is refused (fail-closed). Re-run `whoami` to confirm
 `tenant_provisioned: true`.
+
+> ⚠️ **SECURITY — `CLOVER_TRUST_IDENTITY_HEADER` is mandatory for header routing.**
+> The server refuses to start with `CLOVER_TENANT_HEADER` set unless you also set
+> `CLOVER_TRUST_IDENTITY_HEADER=true`. A forwarded header can be spoofed unless your
+> gateway strips client-supplied copies — **run the header-spoofing test in
+> [docs/SECURITY.md](SECURITY.md) before setting this flag.** For stronger isolation,
+> reference each token via its own env var
+> (`{"...":{"merchant_id":"ABC123","access_token_env":"CLOVER_TOKEN_ABC123"}}`)
+> instead of inlining tokens, and inject them from a secret manager.
 
 > Don't set `CLOVER_TRANSPORT` or `CLOVER_AUTH_*` for this — Horizon owns auth.
 > A flat env blob is fine for a handful of merchants; for many, swap `load_tenants`

@@ -40,6 +40,7 @@ _VARS = [
     "CLOVER_TENANT_CLAIM",
     "CLOVER_TENANTS_JSON",
     "CLOVER_TENANT_HEADER",
+    "CLOVER_TRUST_IDENTITY_HEADER",
 ]
 
 
@@ -247,14 +248,64 @@ def test_request_tenant_key_from_header(monkeypatch: pytest.MonkeyPatch) -> None
     import clover_mcp.remote as remote
 
     monkeypatch.setattr(remote, "_request_headers", lambda: {"x-forwarded-email": "u@store.com"})
-    assert (
-        remote.request_tenant_key(_base_config(tenant_header="x-forwarded-email")) == "u@store.com"
-    )
+    cfg = _base_config(tenant_header="x-forwarded-email", trust_identity_header=True)
+    assert remote.request_tenant_key(cfg) == "u@store.com"
 
 
 def test_request_tenant_key_missing_header_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     import clover_mcp.remote as remote
 
     monkeypatch.setattr(remote, "_request_headers", lambda: {})
+    cfg = _base_config(tenant_header="x-forwarded-email", trust_identity_header=True)
     with pytest.raises(PermissionError, match="no 'x-forwarded-email' header"):
-        remote.request_tenant_key(_base_config(tenant_header="x-forwarded-email"))
+        remote.request_tenant_key(cfg)
+
+
+def test_request_tenant_key_untrusted_header_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SECURITY: header routing without the trust opt-in must refuse, even if the
+    header is present — never trust a spoofable header by default."""
+    import clover_mcp.remote as remote
+
+    monkeypatch.setattr(remote, "_request_headers", lambda: {"x-forwarded-email": "attacker@evil"})
+    cfg = _base_config(tenant_header="x-forwarded-email", trust_identity_header=False)
+    with pytest.raises(PermissionError, match="CLOVER_TRUST_IDENTITY_HEADER is not set"):
+        remote.request_tenant_key(cfg)
+
+
+def test_config_refuses_header_routing_without_trust(clean_env: pytest.MonkeyPatch) -> None:
+    """SECURITY: the server must refuse to START with header routing unless the
+    operator has explicitly opted in."""
+    clean_env.setenv("CLOVER_MERCHANT_ID", "M1")
+    clean_env.setenv("CLOVER_ACCESS_TOKEN", "tok")
+    clean_env.setenv("CLOVER_MULTI_MERCHANT", "true")
+    clean_env.setenv("CLOVER_TENANT_HEADER", "horizon-user-email")
+    with pytest.raises(RuntimeError, match="CLOVER_TRUST_IDENTITY_HEADER"):
+        load_config()
+
+
+def test_config_allows_header_routing_with_trust(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("CLOVER_MULTI_MERCHANT", "true")
+    clean_env.setenv("CLOVER_TENANT_HEADER", "horizon-user-email")
+    clean_env.setenv("CLOVER_TRUST_IDENTITY_HEADER", "true")
+    cfg = load_config()
+    assert cfg.tenant_header == "horizon-user-email"
+    assert cfg.trust_identity_header is True
+
+
+def test_tenant_config_reads_token_from_env_reference(
+    clean_env: pytest.MonkeyPatch,
+) -> None:
+    """Per-tenant credential isolation: an entry can reference its token via its own
+    env var instead of inlining it in the shared CLOVER_TENANTS_JSON blob."""
+    clean_env.setenv("CLOVER_TOKEN_FOR_M1", "secret-token-from-env")
+    tenants = {"a@b.c": {"merchant_id": "M1", "access_token_env": "CLOVER_TOKEN_FOR_M1"}}
+    scoped = tenant_config(_base_config(), tenants, "a@b.c")
+    assert scoped.access_token == "secret-token-from-env"
+
+
+def test_tenant_config_missing_env_reference_fails_closed(
+    clean_env: pytest.MonkeyPatch,
+) -> None:
+    tenants = {"a@b.c": {"merchant_id": "M1", "access_token_env": "CLOVER_TOKEN_MISSING"}}
+    with pytest.raises(PermissionError, match="unset/empty"):
+        tenant_config(_base_config(), tenants, "a@b.c")
