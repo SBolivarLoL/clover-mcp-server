@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Added — expanded read surface (API coverage)
+- **`list_refunds`** (PAYMENTS_R): list refunds in a date window. Clover refunds
+  are separate objects with a positive `amount` (cents); `transactionInfo` is
+  dropped by the shaper.
+- **`list_tenders`** (MERCHANT_R): list the merchant's tender types (cash,
+  credit, custom payment methods).
+
 ### Added — multi-tenant (v2 phase 2)
 - Map each authenticated request to its own Clover merchant by token identity,
   so one deployment can serve many merchants. The tenant map loads from

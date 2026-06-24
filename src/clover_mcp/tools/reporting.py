@@ -12,7 +12,7 @@ from typing import Any
 
 from clover_mcp.client import CloverClient
 from clover_mcp.formatting import format_money
-from clover_mcp.shaping import shape_payment
+from clover_mcp.shaping import shape_payment, shape_refund
 from clover_mcp.windowing import date_to_ms, split_window
 
 _DEFAULT_LIMIT = 50
@@ -282,6 +282,53 @@ async def list_payments(
         chunk_limit = min(100, limit - len(results))
         async for raw in client.iterate("/payments", limit=chunk_limit, **params):
             results.append(shape_payment(raw))
+            if len(results) >= limit:
+                break
+
+    return results
+
+
+async def list_refunds(
+    client: CloverClient,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = _DEFAULT_LIMIT,
+) -> list[dict[str, Any]]:
+    """List refunds within an optional date window.
+
+    Defaults to today (UTC) when no dates are supplied. Uses 90-day chunking
+    so multi-month queries work transparently. Results are limited to `limit`
+    total items (default 50, max 200). Clover refunds are separate objects with
+    a positive `amount` (cents) — not negative payments.
+
+    Allowlisted fields only — card/transaction detail is never included.
+    Requires PAYMENTS_R. This tool does NOT issue refunds.
+    """
+    if limit < 1 or limit > 200:
+        raise ValueError("limit must be between 1 and 200")
+
+    today = _today_utc()
+    d_from = _parse_date(date_from, "date_from") if date_from else today
+    d_to = _parse_date(date_to, "date_to") if date_to else today
+
+    if d_from > d_to:
+        raise ValueError(f"date_from ({d_from}) must be ≤ date_to ({d_to})")
+
+    results: list[dict[str, Any]] = []
+
+    for chunk_start, chunk_end in split_window(d_from, d_to):
+        if len(results) >= limit:
+            break
+        ts_from = date_to_ms(chunk_start, end_of_day=False)
+        ts_to = date_to_ms(chunk_end, end_of_day=True)
+
+        params: dict[str, Any] = {
+            "filter": [f"createdTime>={ts_from}", f"createdTime<={ts_to}"],
+        }
+
+        chunk_limit = min(100, limit - len(results))
+        async for raw in client.iterate("/refunds", limit=chunk_limit, **params):
+            results.append(shape_refund(raw))
             if len(results) >= limit:
                 break
 

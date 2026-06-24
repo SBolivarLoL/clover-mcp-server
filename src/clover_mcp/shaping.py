@@ -126,6 +126,27 @@ def shape_payment(raw: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def shape_refund(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project a refund record. `amount` is positive cents (refunds are separate
+    objects, not negative payments). transactionInfo is dropped — it can carry
+    card/entry-mode detail."""
+    out = _pick(raw, "id", "amount", "taxAmount", "createdTime")
+    if isinstance(raw.get("orderRef"), dict):
+        out["order_id"] = raw["orderRef"].get("id")
+    if isinstance(raw.get("payment"), dict):
+        out["payment_id"] = raw["payment"].get("id")
+    if isinstance(raw.get("employee"), dict):
+        out["employee_id"] = raw["employee"].get("id")
+    return out
+
+
+def shape_tender(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project a tender type (payment method: cash, credit, custom, …)."""
+    return _pick(
+        raw, "id", "label", "labelKey", "enabled", "opensCashDrawer", "editable", "visible"
+    )
+
+
 def shape_customer(raw: dict[str, Any], include: list[str] | None = None) -> dict[str, Any]:
     """Project a customer record.
 
