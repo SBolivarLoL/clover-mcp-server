@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Added — Layer 4 capabilities (resource + logging)
+- **`clover://capabilities`** MCP resource: a read-only cheat-sheet (tools split
+  read/write, prompts, guardrails, hard exclusions) built live from the registry
+  so an agent can ground itself in one fetch without spending tool calls.
+- **Progress logging**: `get_sales_summary` emits per-window log lines via
+  `ctx.info` when a query spans more than one 90-day window (guarded — never
+  fails if the client doesn't support logging).
+
 ### Added — Layer 1 guarded writes + Layer 4 elicitation
 - Five guarded write tools (all validate → dry_run preview → **confirm before
   writing**): `create_category`, `create_item`, `create_order`, `add_line_item`,

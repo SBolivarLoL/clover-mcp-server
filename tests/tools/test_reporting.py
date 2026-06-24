@@ -361,3 +361,25 @@ async def test_list_refunds_shaped(client: CloverClient, mock_http: respx.Router
 async def test_list_refunds_bad_limit(client: CloverClient, mock_http: respx.Router) -> None:
     with pytest.raises(ValueError, match="limit must be between"):
         await list_refunds(client, limit=0)
+
+
+@pytest.mark.asyncio
+async def test_log_helper_is_guarded() -> None:
+    """_log never raises: None is a no-op; a logging ctx is called; a failing
+    ctx is swallowed (logging is optional, must not break the tool)."""
+    from clover_mcp.tools.reporting import _log
+
+    calls = []
+
+    class GoodCtx:
+        async def info(self, msg):
+            calls.append(msg)
+
+    class BadCtx:
+        async def info(self, msg):
+            raise RuntimeError("no logging capability")
+
+    await _log(None, "x")  # no-op, no error
+    await _log(GoodCtx(), "hello")
+    await _log(BadCtx(), "swallowed")
+    assert calls == ["hello"]

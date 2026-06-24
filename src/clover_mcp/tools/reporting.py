@@ -7,15 +7,28 @@ reported separately per the plan's Sales Semantics spec.
 
 from __future__ import annotations
 
+import contextlib
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from clover_mcp.client import CloverClient
 from clover_mcp.formatting import format_money
 from clover_mcp.shaping import shape_payment, shape_refund
 from clover_mcp.windowing import date_to_ms, split_window
 
+if TYPE_CHECKING:
+    from fastmcp import Context
+
 _DEFAULT_LIMIT = 50
+
+
+async def _log(ctx: Context | None, message: str) -> None:
+    """Best-effort progress log to the client — never fails the tool if the
+    client doesn't support logging."""
+    if ctx is None:
+        return
+    with contextlib.suppress(Exception):  # logging is optional; ignore unsupported/transport
+        await ctx.info(message)
 
 
 def _today_utc() -> date:
@@ -40,6 +53,7 @@ async def get_sales_summary(
     client: CloverClient,
     date_from: str | None = None,
     date_to: str | None = None,
+    ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Return an aggregated sales summary for the given date window.
 
@@ -86,7 +100,12 @@ async def get_sales_summary(
     by_tender: dict[str, int] = {}
 
     # Collect all SUCCESS payments across windowed chunks
-    for chunk_start, chunk_end in split_window(d_from, d_to):
+    chunks = list(split_window(d_from, d_to))
+    if len(chunks) > 1:
+        await _log(ctx, f"Aggregating sales over {len(chunks)} 90-day windows…")
+    for i, (chunk_start, chunk_end) in enumerate(chunks, 1):
+        if len(chunks) > 1:
+            await _log(ctx, f"Window {i}/{len(chunks)}: {chunk_start} → {chunk_end}")
         ts_from = date_to_ms(chunk_start, end_of_day=False)
         ts_to = date_to_ms(chunk_end, end_of_day=True)
 

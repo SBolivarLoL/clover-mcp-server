@@ -182,19 +182,17 @@ chains them deterministically.
 
 ## Layer 4 — MCP capabilities checklist (what makes v1.0 "complete")
 
-The server currently exposes only the **tools** capability. A complete agent-ready server:
-- [x] **Tools** — 29, allowlist-shaped, annotated.
-- [ ] **Prompts** — Layer 3.
-- [ ] **Sampling** — Layer 2 (client-side LLM; server stays key-free).
-- [ ] **Elicitation** — mid-tool, structured confirmation for guarded writes ("Change price
-      from $X to $Y on <item>? yes/no"). This is the MCP-native guardrail for the Layer 1
-      write surface — preferred over relying on `dry_run` + the client's own prompting.
-- [ ] **Resources** (optional) — expose a read-only merchant snapshot / capability
-      "cheat sheet" so agents can ground themselves without spending tool calls.
-- [ ] **Progress + logging** — for long aggregations (full-year `get_sales_summary`,
-      cross-employee shift scans) so clients can show progress.
-- [ ] **Structured output schemas** — formalize tool return schemas (partly implicit today
-      via type hints) for stricter client parsing.
+A complete agent-ready server:
+- [x] **Tools** — 44 (39 read + 5 guarded write), allowlist-shaped, annotated.
+- [x] **Prompts** — Layer 3. Six `@mcp.prompt` workflows shipped.
+- [x] **Sampling** — Layer 2 (client-side LLM; server stays key-free). Five tools shipped.
+- [x] **Elicitation** — mid-tool confirmation for guarded writes (`confirm.py`,
+      `ctx.elicit`; fail-closed with a `confirm=True` override). Shipped with the
+      Layer 1 write surface.
+- [x] **Resources** — `clover://capabilities` cheat-sheet (built live from the registry).
+- [x] **Progress + logging** — `get_sales_summary` logs per 90-day window (guarded).
+- [ ] **Structured output schemas** — partly implicit today via return type hints; explicit
+      JSON-Schema formalization for stricter client parsing is deferred (low priority).
 
 ---
 
