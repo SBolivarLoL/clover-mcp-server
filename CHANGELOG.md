@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Fixed
+- `get_order` now returns the order's **payments** (allowlist-shaped via
+  `shape_payment`, so card data is still stripped). The tool expanded `payments`
+  and its docstring promised a "payment summary", but `shape_order` silently
+  dropped them — the field never reached the caller.
+
 ### Added — expanded read surface (API coverage)
 - **`list_refunds`** (PAYMENTS_R): list refunds in a date window. Clover refunds
   are separate objects with a positive `amount` (cents); `transactionInfo` is
