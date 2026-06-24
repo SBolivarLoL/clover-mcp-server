@@ -53,13 +53,31 @@ READ_TOOLS = [
     "detect_sales_anomalies",
     "draft_customer_message",
 ]
-WRITE_TOOLS = ["create_customer", "set_item_price_cents", "set_item_stock_quantity"]
+WRITE_TOOLS = [
+    "create_customer",
+    "set_item_price_cents",
+    "set_item_stock_quantity",
+    # Layer 1 guarded creates (additive) + update (destructive) — Layer 4 elicitation
+    "create_category",
+    "create_item",
+    "create_order",
+    "add_line_item",
+    "update_customer",
+]
+# Additive writes: destructiveHint=False (they create, never overwrite/delete)
+ADDITIVE_WRITES = [
+    "create_customer",
+    "create_category",
+    "create_item",
+    "create_order",
+    "add_line_item",
+]
 
 
 @pytest.mark.asyncio
 async def test_tool_inventory_is_complete() -> None:
-    """All 39 tools exist and every one is annotated."""
-    assert len(READ_TOOLS + WRITE_TOOLS) == 39
+    """All 44 tools exist and every one is annotated."""
+    assert len(READ_TOOLS + WRITE_TOOLS) == 44
     for name in READ_TOOLS + WRITE_TOOLS:
         ann = (await server.mcp.get_tool(name)).annotations
         assert ann is not None, f"{name} has no annotations"
@@ -76,11 +94,20 @@ async def test_read_tools_are_read_only(name: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_customer_is_additive_write() -> None:
-    ann = (await server.mcp.get_tool("create_customer")).annotations
+@pytest.mark.parametrize("name", ADDITIVE_WRITES)
+async def test_additive_writes_are_not_destructive(name: str) -> None:
+    ann = (await server.mcp.get_tool(name)).annotations
     assert ann.readOnlyHint is False
     assert ann.destructiveHint is False  # additive, not destructive
     assert ann.openWorldHint is True
+
+
+@pytest.mark.asyncio
+async def test_update_customer_is_destructive() -> None:
+    """update_customer overwrites existing fields → destructive."""
+    ann = (await server.mcp.get_tool("update_customer")).annotations
+    assert ann.readOnlyHint is False
+    assert ann.destructiveHint is True
 
 
 @pytest.mark.asyncio

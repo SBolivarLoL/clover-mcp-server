@@ -8,11 +8,15 @@ get_order expands lineItems and payments but never customers.cards.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from clover_mcp.client import CloverClient
-from clover_mcp.shaping import shape_order
+from clover_mcp.confirm import confirm_write, confirmation_required
+from clover_mcp.shaping import _shape_line_item, shape_order
 from clover_mcp.windowing import date_to_ms, split_window
+
+if TYPE_CHECKING:
+    from fastmcp import Context
 
 _DEFAULT_LIMIT = 50
 
@@ -136,3 +140,68 @@ async def list_open_orders(
             break
 
     return results
+
+
+# ── Write tools ───────────────────────────────────────────────────────────────
+
+
+async def create_order(
+    client: CloverClient,
+    ctx: Context | None,
+    note: str | None = None,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new open order (no line items yet).
+
+    Previews on dry_run, then asks for confirmation (MCP elicitation, or
+    confirm=True) before POSTing. Add items with add_line_item. Requires ORDERS_W.
+    Does NOT take payment — this server never captures payments.
+    """
+    body: dict[str, Any] = {}
+    if note and note.strip():
+        body["note"] = note.strip()
+
+    if dry_run:
+        return {"ok": True, "dry_run": True, "would_post_path": "/orders", "would_post_body": body}
+
+    approved, how = await confirm_write(ctx, "Create a new open order?", confirm=confirm)
+    if not approved:
+        return confirmation_required(how)
+
+    raw = await client.post("/orders", json=body)
+    return {"ok": True, "order": shape_order(raw)}
+
+
+async def add_line_item(
+    client: CloverClient,
+    ctx: Context | None,
+    order_id: str,
+    item_id: str,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Add a catalog item as a line item to an order.
+
+    The line item's name/price are copied from the catalog item by Clover.
+    Previews on dry_run, then asks for confirmation (MCP elicitation, or
+    confirm=True) before POSTing. Requires ORDERS_W. Does NOT take payment.
+    """
+    if not order_id or not order_id.strip():
+        raise ValueError("order_id must not be empty")
+    if not item_id or not item_id.strip():
+        raise ValueError("item_id must not be empty")
+
+    path = f"/orders/{order_id}/line_items"
+    body = {"item": {"id": item_id}}
+    if dry_run:
+        return {"ok": True, "dry_run": True, "would_post_path": path, "would_post_body": body}
+
+    approved, how = await confirm_write(
+        ctx, f"Add item {item_id} to order {order_id}?", confirm=confirm
+    )
+    if not approved:
+        return confirmation_required(how)
+
+    raw = await client.post(path, json=body)
+    return {"ok": True, "line_item": _shape_line_item(raw)}

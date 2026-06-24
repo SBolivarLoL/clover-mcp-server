@@ -52,6 +52,8 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 | `/v3/merchants/{mId}/items/{itemId}` | PUT | ✅ | ⚠️ body needs `{"name": <str>, "price": <cents>}` — **`name` is required**, 400 without it (pre-check GET supplies it). Returns full item. Negative price → 400. Requires INVENTORY_W. |
 | `/v3/merchants/{mId}/item_stocks/{itemId}` | GET | ✅ | `{item:{id}, stockCount, quantity(float), modifiedTime}`. If stock never set, only `{item:{id}}` (no quantity key). |
 | `/v3/merchants/{mId}/item_stocks/{itemId}` | PUT | ✅ | body `{"quantity": <int>}` — ABSOLUTE (overwrites, not delta; confirmed). `quantity` returned as **float**. No stock-tracking/autoManage prerequisite — works on any item. Requires INVENTORY_W. |
+| `/v3/merchants/{mId}/items` | POST | ✅ | `create_item` (guarded). Body `{name, price}` → returns full item. Sandbox-verified live 2026-06-24. Requires INVENTORY_W. |
+| `/v3/merchants/{mId}/categories` | POST | ✅ | `create_category` (guarded). Body `{name}` → `{id,name,sortOrder,deleted}`. Sandbox-verified live 2026-06-24. Requires INVENTORY_W. |
 | `/v3/merchants/{mId}/categories` | GET | ✅ | v1.1 `list_categories`. `{elements:[]}`; shape `{id,name,sortOrder}`. POST `{name}` creates. Sandbox-verified 2026-06-21. |
 | `/v3/merchants/{mId}/item_groups` | GET | ✅ | `list_item_groups` (INVENTORY_R). Sets of item variants (size/color). Endpoint verified 2026-06-24 — `{elements:[]}`, **empty** on this sandbox (no groups provisioned). Shape `{id,name}` (element shape from docs; none live to confirm fields beyond id/name). |
 | `/v3/merchants/{mId}/modifier_groups` | GET | ✅ | v1.1 `list_modifiers`. expand=modifiers returns `{id,name,showByDefault,...,modifiers:[{id,name,price}]}`. POST modifier at `/modifier_groups/{id}/modifiers`. Sandbox-verified. |
@@ -72,6 +74,9 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 |---|---|---|---|
 | `/v3/merchants/{mId}/customers` | GET | ✅ | `{elements:[],href}`. offset/limit. expand=emailAddresses,phoneNumbers,addresses,orders. ⚠️ filter fields are **flat**: `filter=phoneNumber=`, `filter=emailAddress=`, `filter=fullName=` (NOT nested `phoneNumbers.phoneNumber`). Supported: customerSince, deletedTime, emailAddress, firstName, fullName, id, lastName, marketingAllowed, phoneNumber. |
 | `/v3/merchants/{mId}/customers/{customerId}` | GET | ✅ | expand=emailAddresses,phoneNumbers,addresses,orders. 404 body `{"message":"Not Found","details":"Customer not found"}`. Cards never returned by shaper. |
+| `/v3/merchants/{mId}/orders` | POST | ✅ | `create_order` (guarded). Body `{}` (optional `note`) creates an OPEN order. Sandbox-verified live 2026-06-24. Requires ORDERS_W. Never captures payment. |
+| `/v3/merchants/{mId}/orders/{orderId}/line_items` | POST | ✅ | `add_line_item` (guarded). Body `{item:{id}}` copies name/price from the catalog item. Sandbox-verified live 2026-06-24. Requires ORDERS_W. |
+| `/v3/merchants/{mId}/customers/{customerId}` | POST | ✅ | `update_customer` (guarded). ⚠️ Update is via **POST** — `PUT`/`PATCH` return **405** (verified). Body with any of `firstName`/`lastName`/`marketingAllowed`. Email/phone are sub-resources, not changed here. Sandbox-verified live 2026-06-24. Requires CUSTOMERS_W. |
 | `/v3/merchants/{mId}/customers` | POST | ✅ | body: `firstName`/`lastName` top-level; ⚠️ email/phone are **sub-resources** not flat fields — `emailAddresses:[{emailAddress}]`, `phoneNumbers:[{phoneNumber}]` in the create body (flat strings silently ignored). Response omits contacts unless `?expand=emailAddresses,phoneNumbers`. `marketingAllowed` ignored on sandbox. PUT/PATCH on customer → 405. Requires CUSTOMERS_W. |
 
 ---
