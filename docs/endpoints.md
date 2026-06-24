@@ -55,7 +55,7 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 | `/v3/merchants/{mId}/modifier_groups` | GET | ✅ | v1.1 `list_modifiers`. expand=modifiers returns `{id,name,showByDefault,...,modifiers:[{id,name,price}]}`. POST modifier at `/modifier_groups/{id}/modifiers`. Sandbox-verified. |
 | `/v3/merchants/{mId}/tax_rates` | GET | ✅ | v1.1 `list_taxes`. shape `{id,name,rate,isDefault,rate_percent}`. ✅ **unit confirmed**: seeded `rate=825000` → `rate_percent=8.25`, i.e. `rate/100000` (10_000_000==100%). Sandbox always includes a `NO_TAX_APPLIED` rate. |
 | `/v3/merchants/{mId}/devices` | GET | ✅ | v1.1 `list_devices` (MERCHANT_R). Returns `{elements:[]}`; empty on a sandbox with no provisioned hardware (devices can't be created via REST). Shape `{id,name,serial,model,productName,deviceTypeName}`. Sandbox-verified (empty). |
-| `/v3/merchants/{mId}/tenders` | GET | 🟡 | `list_tenders` (MERCHANT_R). Tender types (payment methods: cash, credit, custom). Shape `{id,label,labelKey,enabled,opensCashDrawer,editable,visible}`. Implemented from API docs; live sandbox audit owed. |
+| `/v3/merchants/{mId}/tenders` | GET | ✅ | `list_tenders` (MERCHANT_R). `{elements:[],href}`. Sandbox-verified 2026-06-24: 14 default tenders (Cash, Credit Card, Check, gift cards, etc.). Element keys `{id,editable,labelKey,label,opensCashDrawer,enabled,visible,supportsCashDiscount,href}`; shaper keeps all but `href` (`labelKey` e.g. `com.clover.tender.cash`). |
 
 ---
 
