@@ -8,7 +8,7 @@ import respx
 
 from clover_mcp.client import CloverClient
 from clover_mcp.errors import CloverAPIError
-from clover_mcp.tools.merchant import get_merchant_info
+from clover_mcp.tools.merchant import get_merchant_info, list_tenders
 from tests.conftest import TEST_MERCHANT_ID
 
 MERCHANT_PAYLOAD = {
@@ -63,3 +63,33 @@ async def test_get_merchant_info_403(client: CloverClient, mock_http: respx.Rout
 
     assert exc_info.value.status_code == 403
     assert "permission" in exc_info.value.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_list_tenders(client: CloverClient, mock_http: respx.Router) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/tenders"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "elements": [
+                    {
+                        "id": "T1",
+                        "label": "Cash",
+                        "labelKey": "com.clover.tender.cash",
+                        "enabled": True,
+                        "opensCashDrawer": True,
+                        "secret": "drop-me",
+                    }
+                ]
+            },
+        )
+    )
+
+    result = await list_tenders(client)
+
+    assert result["count"] == 1
+    t = result["tenders"][0]
+    assert t["label"] == "Cash"
+    assert t["opensCashDrawer"] is True
+    assert "secret" not in t  # allowlist drops everything else

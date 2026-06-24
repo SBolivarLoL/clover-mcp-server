@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from clover_mcp.client import CloverClient
-from clover_mcp.shaping import shape_device, shape_merchant
+from clover_mcp.shaping import shape_device, shape_merchant, shape_tender
 
 
 async def get_merchant_info(client: CloverClient) -> dict[str, Any]:
@@ -24,3 +24,12 @@ async def list_devices(client: CloverClient) -> dict[str, Any]:
     async for el in client.iterate("/devices", limit=100):
         devices.append(shape_device(el))
     return {"devices": devices, "count": len(devices)}
+
+
+async def list_tenders(client: CloverClient) -> dict[str, Any]:
+    """Return the merchant's tender types (payment methods: cash, credit, custom).
+    Requires MERCHANT_R."""
+    tenders: list[dict[str, Any]] = []
+    async for el in client.iterate("/tenders", limit=100):
+        tenders.append(shape_tender(el))
+    return {"tenders": tenders, "count": len(tenders)}

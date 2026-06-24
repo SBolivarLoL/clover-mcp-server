@@ -17,6 +17,7 @@ READ_TOOLS = [
     "get_merchant_info",
     "get_sales_summary",
     "list_payments",
+    "list_refunds",
     "list_orders",
     "get_order",
     "list_open_orders",
@@ -30,6 +31,7 @@ READ_TOOLS = [
     "list_modifiers",
     "list_taxes",
     "list_devices",
+    "list_tenders",
     "get_top_items",
     "list_employees",
     "get_employee",
@@ -41,8 +43,8 @@ WRITE_TOOLS = ["create_customer", "set_item_price_cents", "set_item_stock_quanti
 
 @pytest.mark.asyncio
 async def test_tool_inventory_is_complete() -> None:
-    """All 24 tools exist and every one is annotated."""
-    assert len(READ_TOOLS + WRITE_TOOLS) == 24
+    """All 26 tools exist and every one is annotated."""
+    assert len(READ_TOOLS + WRITE_TOOLS) == 26
     for name in READ_TOOLS + WRITE_TOOLS:
         ann = (await server.mcp.get_tool(name)).annotations
         assert ann is not None, f"{name} has no annotations"

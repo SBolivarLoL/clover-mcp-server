@@ -38,12 +38,14 @@ from clover_mcp.tools.inventory import set_item_price_cents as _set_item_price_c
 from clover_mcp.tools.inventory import set_item_stock_quantity as _set_item_stock_quantity
 from clover_mcp.tools.merchant import get_merchant_info as _get_merchant_info
 from clover_mcp.tools.merchant import list_devices as _list_devices
+from clover_mcp.tools.merchant import list_tenders as _list_tenders
 from clover_mcp.tools.orders import get_order as _get_order
 from clover_mcp.tools.orders import list_open_orders as _list_open_orders
 from clover_mcp.tools.orders import list_orders as _list_orders
 from clover_mcp.tools.reporting import get_sales_summary as _get_sales_summary
 from clover_mcp.tools.reporting import get_top_items as _get_top_items
 from clover_mcp.tools.reporting import list_payments as _list_payments
+from clover_mcp.tools.reporting import list_refunds as _list_refunds
 
 
 @asynccontextmanager
@@ -97,7 +99,7 @@ async def create_server() -> FastMCP:
     server: FastMCP = FastMCP(
         "Clover POS", instructions=_INSTRUCTIONS, lifespan=_lifespan, auth=auth
     )
-    server.mount(mcp)  # expose all 23 tools (no prefix)
+    server.mount(mcp)  # expose all tools (no prefix)
     return server
 
 
@@ -299,6 +301,21 @@ async def list_payments(
 
 
 @mcp.tool(annotations=_READ)
+async def list_refunds(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """List refunds within an optional date window (default: today, limit 50).
+
+    Clover refunds are separate objects with a positive amount (cents), not
+    negative payments. Card/transaction detail is never included. Requires
+    PAYMENTS_R. This tool does NOT issue refunds.
+    """
+    return await _list_refunds(_get_client(), date_from=date_from, date_to=date_to, limit=limit)
+
+
+@mcp.tool(annotations=_READ)
 async def list_orders(
     date_from: str | None = None,
     date_to: str | None = None,
@@ -388,6 +405,12 @@ async def list_taxes() -> dict[str, Any]:
 async def list_devices() -> dict[str, Any]:
     """Return the merchant's Clover devices/terminals. Requires MERCHANT_R."""
     return await _list_devices(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_tenders() -> dict[str, Any]:
+    """Return the merchant's tender types (payment methods: cash, credit, custom). Requires MERCHANT_R."""
+    return await _list_tenders(_get_client())
 
 
 @mcp.tool(annotations=_READ)

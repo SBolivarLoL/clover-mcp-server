@@ -8,7 +8,7 @@ import respx
 
 from clover_mcp.client import CloverClient
 from clover_mcp.errors import CloverAPIError
-from clover_mcp.tools.reporting import get_sales_summary, list_payments
+from clover_mcp.tools.reporting import get_sales_summary, list_payments, list_refunds
 from tests.conftest import TEST_MERCHANT_ID
 
 # ── Shared fixtures / helpers ─────────────────────────────────────────────────
@@ -330,3 +330,34 @@ async def test_list_payments_shaped_fields(client: CloverClient, mock_http: resp
     assert p["employee_id"] == "EMP1"
     # Card transaction must be absent
     assert "cardTransaction" not in p
+
+
+# ── list_refunds tests ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_refunds_shaped(client: CloverClient, mock_http: respx.Router) -> None:
+    """Refunds are returned with positive amount; transaction detail stripped."""
+    raw = {
+        **REFUND_1,
+        "orderRef": {"id": "ORD9"},
+        "payment": {"id": "PAY9"},
+        "transactionInfo": {"last4": "4242"},  # must be dropped
+    }
+    mock_http.get(_refunds_path()).mock(return_value=httpx.Response(200, json={"elements": [raw]}))
+
+    results = await list_refunds(client, date_from="2024-01-01", date_to="2024-01-01")
+
+    assert len(results) == 1
+    r = results[0]
+    assert r["id"] == "RF1"
+    assert r["amount"] == 300  # positive cents
+    assert r["order_id"] == "ORD9"
+    assert r["payment_id"] == "PAY9"
+    assert "transactionInfo" not in r
+
+
+@pytest.mark.asyncio
+async def test_list_refunds_bad_limit(client: CloverClient, mock_http: respx.Router) -> None:
+    with pytest.raises(ValueError, match="limit must be between"):
+        await list_refunds(client, limit=0)

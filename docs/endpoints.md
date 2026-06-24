@@ -37,7 +37,7 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 | Endpoint | Method | Status | Notes |
 |---|---|---|---|
 | `/v3/merchants/{mId}/payments` | GET | ✅ | `{elements:[],href}`. offset/limit pagination. Repeated `?filter=` ANDed. `filter=createdTime>=<ms>&filter=createdTime<=<ms>`; `result=SUCCESS`; `voided=true` valid. Allowed filter fields in `X-Clover-Allowed-Filter-Fields` header. Empty → 200. |
-| `/v3/merchants/{mId}/refunds` | GET | ✅ | `{elements:[],href}`. Refunds are **separate objects** with a positive `amount` (cents) — NOT negative payments. Used by `get_sales_summary` for refund totals (covered by PAYMENTS_R). Standard `createdTime` filter. Sandbox empty. |
+| `/v3/merchants/{mId}/refunds` | GET | ✅ | `{elements:[],href}`. Refunds are **separate objects** with a positive `amount` (cents) — NOT negative payments. Used by `get_sales_summary` for refund totals and exposed via `list_refunds` (covered by PAYMENTS_R). Standard `createdTime` filter. Shape `{id,amount,taxAmount,createdTime,order_id,payment_id,employee_id}` — `transactionInfo` dropped. Sandbox empty. |
 | `/v3/merchants/{mId}/orders/{orderId}/payments` | GET | 🔲 | Payments for a specific order |
 
 ---
@@ -55,6 +55,7 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 | `/v3/merchants/{mId}/modifier_groups` | GET | ✅ | v1.1 `list_modifiers`. expand=modifiers returns `{id,name,showByDefault,...,modifiers:[{id,name,price}]}`. POST modifier at `/modifier_groups/{id}/modifiers`. Sandbox-verified. |
 | `/v3/merchants/{mId}/tax_rates` | GET | ✅ | v1.1 `list_taxes`. shape `{id,name,rate,isDefault,rate_percent}`. ✅ **unit confirmed**: seeded `rate=825000` → `rate_percent=8.25`, i.e. `rate/100000` (10_000_000==100%). Sandbox always includes a `NO_TAX_APPLIED` rate. |
 | `/v3/merchants/{mId}/devices` | GET | ✅ | v1.1 `list_devices` (MERCHANT_R). Returns `{elements:[]}`; empty on a sandbox with no provisioned hardware (devices can't be created via REST). Shape `{id,name,serial,model,productName,deviceTypeName}`. Sandbox-verified (empty). |
+| `/v3/merchants/{mId}/tenders` | GET | 🟡 | `list_tenders` (MERCHANT_R). Tender types (payment methods: cash, credit, custom). Shape `{id,label,labelKey,enabled,opensCashDrawer,editable,visible}`. Implemented from API docs; live sandbox audit owed. |
 
 ---
 
