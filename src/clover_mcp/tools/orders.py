@@ -96,17 +96,21 @@ async def get_order(
     client: CloverClient,
     order_id: str,
 ) -> dict[str, Any]:
-    """Fetch a single order by ID, including its line items and payment summary.
+    """Fetch a single order by ID, including line items, payments, and discounts.
 
-    Expands lineItems and payments only. Customer card data is never expanded.
-    Returns a 404 error if the order_id does not exist.
+    Expands lineItems (with their modifications + discounts), payments, and
+    order-level discounts. Customer card data is never expanded. Returns a 404
+    error if the order_id does not exist.
 
     This tool is read-only and does NOT modify any order state.
     """
     if not order_id or not order_id.strip():
         raise ValueError("order_id must not be empty")
 
-    raw = await client.get(f"/orders/{order_id}", expand="lineItems,payments")
+    raw = await client.get(
+        f"/orders/{order_id}",
+        expand="lineItems.modifications,lineItems.discounts,payments,discounts",
+    )
     return shape_order(raw)
 
 

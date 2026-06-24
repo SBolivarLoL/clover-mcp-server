@@ -36,17 +36,22 @@ from clover_mcp.tools.employees import list_employees as _list_employees
 from clover_mcp.tools.employees import list_roles as _list_roles
 from clover_mcp.tools.employees import list_shifts as _list_shifts
 from clover_mcp.tools.inventory import get_item as _get_item
+from clover_mcp.tools.inventory import list_attributes as _list_attributes
 from clover_mcp.tools.inventory import list_categories as _list_categories
 from clover_mcp.tools.inventory import list_item_groups as _list_item_groups
 from clover_mcp.tools.inventory import list_items as _list_items
 from clover_mcp.tools.inventory import list_low_stock_items as _list_low_stock_items
 from clover_mcp.tools.inventory import list_modifiers as _list_modifiers
+from clover_mcp.tools.inventory import list_tags as _list_tags
 from clover_mcp.tools.inventory import list_taxes as _list_taxes
 from clover_mcp.tools.inventory import set_item_price_cents as _set_item_price_cents
 from clover_mcp.tools.inventory import set_item_stock_quantity as _set_item_stock_quantity
 from clover_mcp.tools.merchant import get_merchant_info as _get_merchant_info
 from clover_mcp.tools.merchant import get_merchant_properties as _get_merchant_properties
+from clover_mcp.tools.merchant import list_cash_events as _list_cash_events
 from clover_mcp.tools.merchant import list_devices as _list_devices
+from clover_mcp.tools.merchant import list_opening_hours as _list_opening_hours
+from clover_mcp.tools.merchant import list_order_types as _list_order_types
 from clover_mcp.tools.merchant import list_tenders as _list_tenders
 from clover_mcp.tools.orders import get_order as _get_order
 from clover_mcp.tools.orders import list_open_orders as _list_open_orders
@@ -437,6 +442,39 @@ async def get_merchant_properties() -> dict[str, Any]:
     closeout, locale, support contacts). Banking/account fields are never returned.
     Requires MERCHANT_R."""
     return await _get_merchant_properties(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_order_types() -> dict[str, Any]:
+    """Return the merchant's order types (Dine In, Take Out, …). Requires MERCHANT_R."""
+    return await _list_order_types(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_opening_hours() -> dict[str, Any]:
+    """Return the merchant's opening-hours sets (per-day time ranges). Requires MERCHANT_R."""
+    return await _list_opening_hours(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_cash_events(limit: int = 50) -> dict[str, Any]:
+    """Return recent cash-drawer events (paid in/out, no-sale, deposits).
+
+    Capped at `limit` (default 50, max 500). Requires MERCHANT_R.
+    """
+    return await _list_cash_events(_get_client(), limit=limit)
+
+
+@mcp.tool(annotations=_READ)
+async def list_attributes() -> dict[str, Any]:
+    """Return item attributes (variant axes like Size/Color) with options. Requires INVENTORY_R."""
+    return await _list_attributes(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_tags() -> dict[str, Any]:
+    """Return the merchant's tags/labels used to group items. Requires INVENTORY_R."""
+    return await _list_tags(_get_client())
 
 
 @mcp.tool(annotations=_READ)

@@ -11,8 +11,10 @@ from clover_mcp.client import CloverClient
 from clover_mcp.errors import CloverAPIError
 from clover_mcp.tools.inventory import (
     get_item,
+    list_attributes,
     list_items,
     list_low_stock_items,
+    list_tags,
     set_item_price_cents,
     set_item_stock_quantity,
 )
@@ -521,3 +523,55 @@ async def test_set_item_stock_api_error_on_put(
             client, "ITEM1", new_quantity=25, expected_current_quantity=10
         )
     assert exc_info.value.status_code == 403
+
+
+ATTRIBUTES_PATH = f"/v3/merchants/{TEST_MERCHANT_ID}/attributes"
+TAGS_PATH = f"/v3/merchants/{TEST_MERCHANT_ID}/tags"
+
+
+@pytest.mark.asyncio
+async def test_list_attributes_with_options(client: CloverClient, mock_http: respx.Router) -> None:
+    mock_http.get(ATTRIBUTES_PATH).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "elements": [
+                    {
+                        "id": "A1",
+                        "name": "Size",
+                        "options": {"elements": [{"id": "O1", "name": "Small"}]},
+                        "href": "https://sandbox.dev.clover.com/x",
+                    }
+                ]
+            },
+        )
+    )
+    result = await list_attributes(client)
+    assert result["count"] == 1
+    attr = result["attributes"][0]
+    assert attr["name"] == "Size"
+    assert attr["options"] == [{"id": "O1", "name": "Small"}]
+    assert "href" not in attr
+
+
+@pytest.mark.asyncio
+async def test_list_tags(client: CloverClient, mock_http: respx.Router) -> None:
+    mock_http.get(TAGS_PATH).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "elements": [
+                    {
+                        "id": "T1",
+                        "name": "Seasonal",
+                        "showInReporting": True,
+                        "href": "https://sandbox.dev.clover.com/x",
+                    }
+                ]
+            },
+        )
+    )
+    result = await list_tags(client)
+    assert result["count"] == 1
+    assert result["tags"][0]["name"] == "Seasonal"
+    assert "href" not in result["tags"][0]

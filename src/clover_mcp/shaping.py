@@ -97,6 +97,13 @@ def shape_order(raw: dict[str, Any]) -> dict[str, Any]:
         pmts = raw["payments"]
         elements = pmts.get("elements", pmts) if isinstance(pmts, dict) else pmts
         out["payments"] = [shape_payment(p) for p in elements if isinstance(p, dict)]
+    # Order-level discounts — present only when expanded / applied.
+    if "discounts" in raw:
+        discs = raw["discounts"]
+        elements = discs.get("elements", discs) if isinstance(discs, dict) else discs
+        out["discounts"] = [
+            _pick(d, "name", "amount", "percentage") for d in elements if isinstance(d, dict)
+        ]
     # Service charges total
     if "serviceCharge" in raw and isinstance(raw["serviceCharge"], dict):
         out["service_charge"] = raw["serviceCharge"].get("amount")
@@ -104,7 +111,83 @@ def shape_order(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _shape_line_item(raw: dict[str, Any]) -> dict[str, Any]:
-    return _pick(raw, "id", "name", "price", "unitQty", "unitName", "note", "refunded")
+    out = _pick(
+        raw,
+        "id",
+        "name",
+        "price",
+        "unitQty",
+        "unitName",
+        "note",
+        "refunded",
+        "exchanged",
+        "isRevenue",
+    )
+    # Reference to the catalog item (sandbox-verified field: lineItem.item.id)
+    if isinstance(raw.get("item"), dict):
+        out["item_id"] = raw["item"].get("id")
+    # Order detail sub-resources — present only when expanded / applied.
+    if "modifications" in raw:
+        mods = raw["modifications"]
+        elements = mods.get("elements", mods) if isinstance(mods, dict) else mods
+        out["modifications"] = [_pick(m, "name", "amount") for m in elements if isinstance(m, dict)]
+    if "discounts" in raw:
+        discs = raw["discounts"]
+        elements = discs.get("elements", discs) if isinstance(discs, dict) else discs
+        out["discounts"] = [
+            _pick(d, "name", "amount", "percentage") for d in elements if isinstance(d, dict)
+        ]
+    return out
+
+
+def shape_order_type(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project an order type (Dine In, Take Out, …)."""
+    return _pick(raw, "id", "label", "taxable", "isDefault", "isHidden", "filterCategories")
+
+
+def shape_opening_hours(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project an opening-hours set. Day arrays (sunday…saturday) carry
+    {elements:[{start,end}]} time ranges; passed through as-is (not sensitive)."""
+    out = _pick(raw, "id", "name")
+    for day in (
+        "sunday",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+    ):
+        if day in raw:
+            val = raw[day]
+            elements = val.get("elements", val) if isinstance(val, dict) else val
+            out[day] = [_pick(e, "start", "end") for e in elements if isinstance(e, dict)]
+    return out
+
+
+def shape_cash_event(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project a cash-drawer event (paid in/out, no-sale, deposit)."""
+    out = _pick(raw, "id", "type", "amount", "note", "timestamp", "cashEventType")
+    if isinstance(raw.get("employee"), dict):
+        out["employee_id"] = raw["employee"].get("id")
+    if isinstance(raw.get("device"), dict):
+        out["device_id"] = raw["device"].get("id")
+    return out
+
+
+def shape_attribute(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project an item attribute (variant axis, e.g. Size) with its options."""
+    out = _pick(raw, "id", "name")
+    if "options" in raw:
+        opts = raw["options"]
+        elements = opts.get("elements", opts) if isinstance(opts, dict) else opts
+        out["options"] = [_pick(o, "id", "name") for o in elements if isinstance(o, dict)]
+    return out
+
+
+def shape_tag(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project a tag/label (used to group items, e.g. on reporting/printers)."""
+    return _pick(raw, "id", "name", "showInReporting")
 
 
 def shape_payment(raw: dict[str, Any]) -> dict[str, Any]:
