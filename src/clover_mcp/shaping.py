@@ -234,3 +234,50 @@ def shape_tax(raw: dict[str, Any]) -> dict[str, Any]:
     if isinstance(rate, int):
         out["rate_percent"] = round(rate / 100_000, 4)
     return out
+
+
+def shape_role(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project an employee role. `systemRole` is the built-in category
+    (EMPLOYEE / MANAGER / ADMIN); `name` is the merchant-facing label."""
+    return _pick(raw, "id", "name", "systemRole")
+
+
+# Merchant /properties carries POS configuration AND banking fields
+# (abaAccountNumber, ddaAccountNumber). This is a strict allowlist of safe,
+# useful config — the banking/account numbers and internal billing flags are
+# never picked, so they cannot leak.
+_PROPERTY_FIELDS = (
+    "defaultCurrency",
+    "timezone",
+    "locale",
+    "vat",
+    "vatTaxName",
+    "tipsEnabled",
+    "tipRateDefault",
+    "signatureThreshold",
+    "cashBackEnabled",
+    "trackStock",
+    "updateStock",
+    "orderTitle",
+    "notesOnOrders",
+    "groupLineItems",
+    "deleteOrders",
+    "removeTaxEnabled",
+    "autoLogout",
+    "pinLength",
+    "marketingEnabled",
+    "supportPhone",
+    "supportEmail",
+    "autoCloseoutTimezone",
+)
+
+
+def shape_merchant_properties(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project merchant POS settings. Banking fields (aba/dda account numbers)
+    and internal billing flags are deliberately excluded by the allowlist."""
+    return _pick(raw, *_PROPERTY_FIELDS)
+
+
+def shape_item_group(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project an item group (a set of item variants, e.g. size/color)."""
+    return _pick(raw, "id", "name")

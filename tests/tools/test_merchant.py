@@ -8,7 +8,7 @@ import respx
 
 from clover_mcp.client import CloverClient
 from clover_mcp.errors import CloverAPIError
-from clover_mcp.tools.merchant import get_merchant_info, list_tenders
+from clover_mcp.tools.merchant import get_merchant_info, get_merchant_properties, list_tenders
 from tests.conftest import TEST_MERCHANT_ID
 
 MERCHANT_PAYLOAD = {
@@ -98,3 +98,35 @@ async def test_list_tenders(client: CloverClient, mock_http: respx.Router) -> No
     assert t["opensCashDrawer"] is True
     assert t["supportsCashDiscount"] is False
     assert "href" not in t  # allowlist drops href and everything else
+
+
+@pytest.mark.asyncio
+async def test_get_merchant_properties_drops_banking(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    """POS settings surface; banking/account numbers never do."""
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/properties"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "defaultCurrency": "USD",
+                "timezone": "America/Chicago",
+                "tipsEnabled": False,
+                "trackStock": False,
+                "supportPhone": "+1 555 0100",
+                "abaAccountNumber": "000000000000000",
+                "ddaAccountNumber": "***********3770",
+                "href": f"https://sandbox.dev.clover.com/v3/merchants/{TEST_MERCHANT_ID}/properties",
+            },
+        )
+    )
+
+    result = await get_merchant_properties(client)
+
+    assert result["defaultCurrency"] == "USD"
+    assert result["timezone"] == "America/Chicago"
+    assert result["tipsEnabled"] is False
+    assert "abaAccountNumber" not in result
+    assert "ddaAccountNumber" not in result
+    assert "href" not in result

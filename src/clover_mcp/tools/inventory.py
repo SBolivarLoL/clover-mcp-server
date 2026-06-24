@@ -8,7 +8,13 @@ from __future__ import annotations
 from typing import Any
 
 from clover_mcp.client import CloverClient
-from clover_mcp.shaping import shape_category, shape_item, shape_modifier_group, shape_tax
+from clover_mcp.shaping import (
+    shape_category,
+    shape_item,
+    shape_item_group,
+    shape_modifier_group,
+    shape_tax,
+)
 
 
 async def list_items(
@@ -93,6 +99,16 @@ async def list_categories(client: CloverClient) -> dict[str, Any]:
         if len(cats) >= 1000:
             break
     return {"categories": cats, "count": len(cats)}
+
+
+async def list_item_groups(client: CloverClient) -> dict[str, Any]:
+    """Return item groups (sets of item variants, e.g. size/color). Requires INVENTORY_R."""
+    groups: list[dict[str, Any]] = []
+    async for el in client.iterate("/item_groups", limit=100):
+        groups.append(shape_item_group(el))
+        if len(groups) >= 1000:
+            break
+    return {"item_groups": groups, "count": len(groups)}
 
 
 async def list_modifiers(client: CloverClient) -> dict[str, Any]:
