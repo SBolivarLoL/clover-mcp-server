@@ -6,6 +6,8 @@ If a shaper accidentally passes through PII, these tests catch it.
 """
 
 from clover_mcp.shaping import (
+    shape_attribute,
+    shape_cash_event,
     shape_category,
     shape_customer,
     shape_device,
@@ -15,11 +17,14 @@ from clover_mcp.shaping import (
     shape_merchant,
     shape_merchant_properties,
     shape_modifier_group,
+    shape_opening_hours,
     shape_order,
+    shape_order_type,
     shape_payment,
     shape_refund,
     shape_role,
     shape_shift,
+    shape_tag,
     shape_tax,
     shape_tender,
 )
@@ -149,8 +154,61 @@ def test_v11_list_shapers_strip_href() -> None:
         shape_tender,
         shape_role,
         shape_item_group,
+        shape_order_type,
+        shape_opening_hours,
+        shape_cash_event,
+        shape_attribute,
+        shape_tag,
     ):
         _assert_no_banned(shaper(dict(dirty)))
+
+
+def test_order_surfaces_discounts_and_line_item_detail() -> None:
+    """Order detail sub-resources (discounts, line-item modifications) project
+    cleanly and the line item carries its catalog item_id — no href leak."""
+    raw = {
+        "id": "O9",
+        "state": "paid",
+        "total": 900,
+        "discounts": {"elements": [{"name": "10% off", "amount": -100, "percentage": 10}]},
+        "lineItems": {
+            "elements": [
+                {
+                    "id": "LI1",
+                    "name": "Latte",
+                    "price": 500,
+                    "item": {"id": "ITEM1", "href": "https://api.clover.com/x"},
+                    "modifications": {"elements": [{"name": "Oat milk", "amount": 50}]},
+                    "href": "https://api.clover.com/li",
+                }
+            ]
+        },
+    }
+    out = shape_order(raw)
+    _assert_no_banned(out)
+    assert out["discounts"][0]["name"] == "10% off"
+    li = out["line_items"][0]
+    assert li["item_id"] == "ITEM1"
+    assert li["modifications"][0]["name"] == "Oat milk"
+
+
+def test_cash_event_strips_refs_keeps_amount() -> None:
+    out = shape_cash_event(
+        {
+            "id": "CE1",
+            "type": "PAID_IN",
+            "amount": 2000,
+            "note": "float",
+            "timestamp": 1700000000000,
+            "employee": {"id": "E1", "href": "https://api.clover.com/x"},
+            "device": {"id": "D1"},
+            "href": "https://api.clover.com/ce",
+        }
+    )
+    _assert_no_banned(out)
+    assert out["amount"] == 2000
+    assert out["employee_id"] == "E1"
+    assert out["device_id"] == "D1"
 
 
 def test_merchant_properties_drops_banking_fields() -> None:

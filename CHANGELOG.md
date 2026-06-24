@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Added — Layer 3 prompts (MCP prompts capability)
+- Six predefined `@mcp.prompt` workflows that drive the existing read tools so a
+  merchant's agent runs common jobs out of the box (no LLM call inside a prompt):
+  `daily_briefing`, `weekly_sales_report`, `inventory_health_check`,
+  `end_of_day_closeout`, `customer_lookup(query)`, `monthly_tax_summary(month)`.
+
+### Added — Layer 2 AI/LLM tools (MCP sampling)
+- Five tools that reason over Clover data via `ctx.sample()` — the **server holds
+  no LLM key** and makes no paid API call; it asks the connected client's model.
+  `summarize_sales`, `suggest_item_categories`, `inventory_reorder_suggestions`,
+  `detect_sales_anomalies`, `draft_customer_message(intent)`. All read-only, with
+  bounded prompts and a graceful fallback (data + note) when the client can't sample.
+
+### Added — Layer 1 expanded reads (API coverage)
+- **`list_order_types`**, **`list_opening_hours`**, **`list_cash_events`** (MERCHANT_R):
+  reference data agents ask about ("are we open?", cash-drawer log).
+- **`list_attributes`** (item variant axes + options) and **`list_tags`** (INVENTORY_R).
+- `get_order` now expands **discounts** and per-line-item **modifications/discounts**,
+  and surfaces the line item's catalog `item_id`.
 
 ## [0.3.0] — 2026-06-24
 ### Fixed

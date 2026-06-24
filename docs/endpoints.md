@@ -29,7 +29,7 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 | Endpoint | Method | Status | Notes |
 |---|---|---|---|
 | `/v3/merchants/{mId}/orders` | GET | ✅ | `{elements:[],href}`. Pagination offset/limit; page while `len==limit`. AND filters via **repeated** `?filter=X&filter=Y` (no `filter[]=`). Time: `filter=createdTime>=<ms>&filter=createdTime<=<ms>`. `state=open` valid. expand=lineItems,payments. Empty list → 200, never 404. |
-| `/v3/merchants/{mId}/orders/{orderId}` | GET | ✅ | expand=lineItems,payments. `get_order` surfaces both `line_items` and `payments` (payments shaped via `shape_payment` → no card data). 404 body `{"message":"Not Found","details":"Order not found"}`. Never expand customers.cards. ⚠️ `serviceCharge` (expandable) is a **percentage** definition `{id,name,enabled,percentageDecimal}` — no per-order computed dollar amount, so service charges aren't summed in `get_sales_summary`. |
+| `/v3/merchants/{mId}/orders/{orderId}` | GET | ✅ | expand=lineItems.modifications,lineItems.discounts,payments,discounts. `get_order` surfaces `line_items` (with `item_id`, `modifications`, `discounts`), `payments` (shaped via `shape_payment` → no card data), and order-level `discounts`. Live order 2026-06-24: line item carries `item.id`/`name`/`price`/`refunded`/`exchanged`/`isRevenue`. 404 body `{"message":"Not Found","details":"Order not found"}`. Never expand customers.cards. ⚠️ `serviceCharge` (expandable) is a **percentage** definition `{id,name,enabled,percentageDecimal}` — no per-order computed dollar amount, so service charges aren't summed in `get_sales_summary`. |
 
 ---
 
@@ -58,6 +58,11 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 | `/v3/merchants/{mId}/tax_rates` | GET | ✅ | v1.1 `list_taxes`. shape `{id,name,rate,isDefault,rate_percent}`. ✅ **unit confirmed**: seeded `rate=825000` → `rate_percent=8.25`, i.e. `rate/100000` (10_000_000==100%). Sandbox always includes a `NO_TAX_APPLIED` rate. |
 | `/v3/merchants/{mId}/devices` | GET | ✅ | v1.1 `list_devices` (MERCHANT_R). Returns `{elements:[]}`; empty on a sandbox with no provisioned hardware (devices can't be created via REST). Shape `{id,name,serial,model,productName,deviceTypeName}`. Sandbox-verified (empty). |
 | `/v3/merchants/{mId}/tenders` | GET | ✅ | `list_tenders` (MERCHANT_R). `{elements:[],href}`. Sandbox-verified 2026-06-24: 14 default tenders (Cash, Credit Card, Check, gift cards, etc.). Element keys `{id,editable,labelKey,label,opensCashDrawer,enabled,visible,supportsCashDiscount,href}`; shaper keeps all but `href` (`labelKey` e.g. `com.clover.tender.cash`). |
+| `/v3/merchants/{mId}/order_types` | GET | 🟡 | `list_order_types` (MERCHANT_R). Endpoint reachable 2026-06-24 (200, `{elements:[],href}`) but **empty** on this sandbox. Shape `{id,label,taxable,isDefault,isHidden,filterCategories}` from API docs — live element shape unconfirmed. |
+| `/v3/merchants/{mId}/opening_hours` | GET | 🟡 | `list_opening_hours` (MERCHANT_R). Reachable 2026-06-24 (200, empty). Shape `{id,name,<day>:[{start,end}]}` per-day arrays, from docs — live shape unconfirmed. |
+| `/v3/merchants/{mId}/cash_events` | GET | 🟡 | `list_cash_events` (MERCHANT_R). Reachable 2026-06-24 (200, empty). Shape `{id,type,amount,note,timestamp,employee_id,device_id}` from docs — live shape unconfirmed. `limit` capped 1–500. |
+| `/v3/merchants/{mId}/attributes` | GET | 🟡 | `list_attributes` (INVENTORY_R). Reachable 2026-06-24 (200, empty). `expand=options`. Shape `{id,name,options:[{id,name}]}` from docs — live shape unconfirmed. |
+| `/v3/merchants/{mId}/tags` | GET | 🟡 | `list_tags` (INVENTORY_R). Reachable 2026-06-24 (200, empty). Shape `{id,name,showInReporting}` from docs — live shape unconfirmed. |
 
 ---
 

@@ -8,7 +8,14 @@ import respx
 
 from clover_mcp.client import CloverClient
 from clover_mcp.errors import CloverAPIError
-from clover_mcp.tools.merchant import get_merchant_info, get_merchant_properties, list_tenders
+from clover_mcp.tools.merchant import (
+    get_merchant_info,
+    get_merchant_properties,
+    list_cash_events,
+    list_opening_hours,
+    list_order_types,
+    list_tenders,
+)
 from tests.conftest import TEST_MERCHANT_ID
 
 MERCHANT_PAYLOAD = {
@@ -130,3 +137,89 @@ async def test_get_merchant_properties_drops_banking(
     assert "abaAccountNumber" not in result
     assert "ddaAccountNumber" not in result
     assert "href" not in result
+
+
+@pytest.mark.asyncio
+async def test_list_order_types(client: CloverClient, mock_http: respx.Router) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/order_types"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "elements": [
+                    {
+                        "id": "OT1",
+                        "label": "Dine In",
+                        "taxable": True,
+                        "isDefault": True,
+                        "href": "https://sandbox.dev.clover.com/x",
+                    }
+                ]
+            },
+        )
+    )
+    result = await list_order_types(client)
+    assert result["count"] == 1
+    assert result["order_types"][0]["label"] == "Dine In"
+    assert "href" not in result["order_types"][0]
+
+
+@pytest.mark.asyncio
+async def test_list_opening_hours(client: CloverClient, mock_http: respx.Router) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/opening_hours"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "elements": [
+                    {
+                        "id": "OH1",
+                        "name": "Default",
+                        "monday": {"elements": [{"start": "09:00", "end": "17:00"}]},
+                        "href": "https://sandbox.dev.clover.com/x",
+                    }
+                ]
+            },
+        )
+    )
+    result = await list_opening_hours(client)
+    assert result["count"] == 1
+    oh = result["opening_hours"][0]
+    assert oh["name"] == "Default"
+    assert oh["monday"] == [{"start": "09:00", "end": "17:00"}]
+    assert "href" not in oh
+
+
+@pytest.mark.asyncio
+async def test_list_cash_events(client: CloverClient, mock_http: respx.Router) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/cash_events"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "elements": [
+                    {
+                        "id": "CE1",
+                        "type": "PAID_IN",
+                        "amount": 2000,
+                        "note": "float",
+                        "timestamp": 1700000000000,
+                        "employee": {"id": "E1"},
+                        "href": "https://sandbox.dev.clover.com/x",
+                    }
+                ]
+            },
+        )
+    )
+    result = await list_cash_events(client)
+    assert result["count"] == 1
+    ce = result["cash_events"][0]
+    assert ce["amount"] == 2000
+    assert ce["employee_id"] == "E1"
+    assert "href" not in ce
+
+
+@pytest.mark.asyncio
+async def test_list_cash_events_rejects_bad_limit(client: CloverClient) -> None:
+    with pytest.raises(ValueError, match="limit"):
+        await list_cash_events(client, limit=0)

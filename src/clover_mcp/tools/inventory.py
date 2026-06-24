@@ -9,10 +9,12 @@ from typing import Any
 
 from clover_mcp.client import CloverClient
 from clover_mcp.shaping import (
+    shape_attribute,
     shape_category,
     shape_item,
     shape_item_group,
     shape_modifier_group,
+    shape_tag,
     shape_tax,
 )
 
@@ -130,6 +132,29 @@ async def list_taxes(client: CloverClient) -> dict[str, Any]:
     async for el in client.iterate("/tax_rates", limit=100):
         taxes.append(shape_tax(el))
     return {"tax_rates": taxes, "count": len(taxes)}
+
+
+async def list_attributes(client: CloverClient) -> dict[str, Any]:
+    """Return item attributes (variant axes like Size/Color) with their options.
+
+    Attributes + options define an item's variants. Requires INVENTORY_R.
+    """
+    attrs: list[dict[str, Any]] = []
+    async for el in client.iterate("/attributes", limit=100, expand="options"):
+        attrs.append(shape_attribute(el))
+        if len(attrs) >= 1000:
+            break
+    return {"attributes": attrs, "count": len(attrs)}
+
+
+async def list_tags(client: CloverClient) -> dict[str, Any]:
+    """Return the merchant's tags/labels (used to group items). Requires INVENTORY_R."""
+    tags: list[dict[str, Any]] = []
+    async for el in client.iterate("/tags", limit=100):
+        tags.append(shape_tag(el))
+        if len(tags) >= 1000:
+            break
+    return {"tags": tags, "count": len(tags)}
 
 
 # ── Write tools ───────────────────────────────────────────────────────────────
