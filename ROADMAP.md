@@ -209,10 +209,11 @@ guarded-write). That is the bulk of the pre-prod build.
 
 ### B. Security hardening (REQUIRED before real merchants — none optional)
 See **[docs/SECURITY.md](docs/SECURITY.md)** for the full checklist + procedures.
-- [x] **Header-spoofing guard.** Header routing now **fails closed** — refuses to
-      start and refuses per request unless `CLOVER_TRUST_IDENTITY_HEADER=true` (opt-in
-      after verifying the gateway strips client copies). `whoami` emits the spoofing
-      test procedure. ⚙️ Operator must still **run the test** on their gateway.
+- [x] **Header-spoofing guard.** Header routing now **fails closed** — the server
+      boots (so `whoami` can run the spoofing test) but `request_tenant_key` refuses
+      every data call unless `CLOVER_TRUST_IDENTITY_HEADER=true` (opt-in after verifying
+      the gateway strips client copies). `whoami` emits the test procedure + startup
+      warns. ⚙️ Operator must still **run the test** on their gateway.
 - [x] **Per-tenant credential isolation** — tenant entries can reference each token by
       its own env var (`access_token_env`/`refresh_token_env`) instead of one plaintext
       blob. ⚙️ Operator wires those to a secret-manager (encryption at rest is an ops

@@ -25,15 +25,18 @@ the gateway strips any client-supplied copy of that header.** If it doesn't, a
 client can send `horizon-user-email: victim@example.com` and read/write that
 merchant's data — a cross-tenant authorization bypass.
 
-The server now **refuses to start** (and refuses per request) when
-`CLOVER_TENANT_HEADER` is set unless you have explicitly opted in with
-`CLOVER_TRUST_IDENTITY_HEADER=true`, asserting you've run the test below.
+When `CLOVER_TENANT_HEADER` is set without `CLOVER_TRUST_IDENTITY_HEADER=true`, the
+server **boots but fails closed on every data call** — `request_tenant_key` refuses
+to resolve a tenant, so no tool returns merchant data. It deliberately does **not**
+hard-fail at startup, because `whoami` must stay reachable to run the spoofing test
+below. It also logs a startup WARNING. Set `CLOVER_TRUST_IDENTITY_HEADER=true` only
+after the test passes.
 
 #### ⚙️ The header-spoofing test (run before setting the trust flag)
 
-1. Deploy with multi-tenant config but **without** `CLOVER_TRUST_IDENTITY_HEADER`
-   (the server will refuse to route — that's fine; you only need `whoami`). For
-   the test you can temporarily set the flag on a **staging** deploy.
+1. Deploy with multi-tenant config but **without** `CLOVER_TRUST_IDENTITY_HEADER`.
+   The server boots and `whoami` works (data tools fail closed — that's fine; you
+   only need `whoami`).
 2. From an **external** MCP client (MCP Inspector), connect through the real
    gateway and call `whoami` while injecting a forged header:
    `horizon-user-email: spoof@test.invalid`.

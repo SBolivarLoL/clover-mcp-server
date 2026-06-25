@@ -108,18 +108,13 @@ def load_config() -> Config:
     if transport not in ("stdio", "http"):
         errors.append(f"  • CLOVER_TRANSPORT must be 'stdio' or 'http', got {transport!r}")
 
-    # SECURITY (fail-closed): routing tenants by a forwarded HTTP header is a
-    # spoofing risk unless the gateway strips client-supplied copies. Refuse to
-    # start with header routing unless the operator has explicitly opted in after
-    # verifying that (docs/SECURITY.md). Without this, a client could set the
-    # header itself and read another merchant's data.
-    if tenant_header and not trust_identity_header:
-        errors.append(
-            f"  • CLOVER_TENANT_HEADER={tenant_header!r} routes tenants by a forwarded HTTP "
-            "header. This is only safe if your gateway strips client-supplied copies of it. "
-            "Verify (docs/SECURITY.md → header-spoofing test), then set "
-            "CLOVER_TRUST_IDENTITY_HEADER=true to opt in. Refusing to start otherwise."
-        )
+    # SECURITY: routing tenants by a forwarded HTTP header is a spoofing risk unless
+    # the gateway strips client-supplied copies. This is NOT a hard startup error —
+    # the server must still boot so the `whoami` diagnostic works (it's the tool you
+    # run for the header-spoofing test in docs/SECURITY.md). The actual fail-closed
+    # enforcement is at request time in remote.request_tenant_key, which refuses
+    # every DATA path unless CLOVER_TRUST_IDENTITY_HEADER=true. A startup WARNING is
+    # emitted in server._check_permissions (consistent with the permission self-check).
     # multi_merchant routes by the authenticated request's identity, so it needs an
     # auth layer — either ours (CLOVER_TRANSPORT=http + IdP) or a managed platform
     # like FastMCP Cloud / Horizon (which provides auth even with transport unset).
