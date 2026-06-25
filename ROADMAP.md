@@ -1,9 +1,9 @@
 # Roadmap
 
-Working list of what's next. Shipped state: **0.2.0** on PyPI + the MCP Registry;
-**0.3.0 cut and merged on `main`** (29 tools, both auth modes, multi-tenant + hosted
-OAuth, security hardened), awaiting the `v0.3.0` tag to publish. Full design context
-lives in the private build plan; this file is the actionable backlog.
+Working list of what's next. Shipped state: **0.5.0** on PyPI + the MCP Registry
+(44 tools, 6 prompts, both auth modes, multi-tenant + hosted OAuth, security
+hardened). Full design context lives in the private build plan; this file is the
+actionable backlog.
 
 Each tool follows the same recipe: **audit the endpoint → add a shaper projection
 → implement → annotate (`ToolAnnotations`) → tests (happy + error) → add the

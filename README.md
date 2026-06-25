@@ -4,40 +4,42 @@ MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, 
 
 <!-- mcp-name: io.github.SBolivarLoL/clover-mcp -->
 
-> **Status:** v0.2 — 23 tools, both auth modes, 198 tests. Runs locally (stdio, single merchant) or remotely over HTTP with OAuth (see [docs/DEPLOY.md](docs/DEPLOY.md)). Endpoint contracts are sandbox-verified in [docs/endpoints.md](docs/endpoints.md).
+> **Status:** v0.5.0 — 44 tools, 6 prompts, both auth modes, 226 tests. Runs locally (stdio, single merchant) or remotely over HTTP with OAuth, single- or multi-tenant (see [docs/DEPLOY.md](docs/DEPLOY.md)). Endpoint contracts are sandbox-verified in [docs/endpoints.md](docs/endpoints.md).
 
 > ⚠️ **Independent project — not affiliated with, endorsed by, or sponsored by Clover Network, LLC or Fiserv, Inc.** "Clover" is a trademark of its respective owner and is used here only nominatively to describe interoperability. Provided **as is**, without warranty — see [Legal & disclaimer](#legal--disclaimer).
 
 ## What it can do
 
-- Sales summaries and payment reports
+- Sales summaries, payment and refund reports
 - Inventory lookups and low-stock alerts
 - Order history and open-order inspection
 - Customer search and creation
-- Safe writes: update item prices, set stock quantities, create customers
+- Employee, shift, role, category, modifier, tax, tender, and device lookups; best-selling items
+- Safe writes: update item prices, set stock quantities, create customers/items/categories/orders, add line items, update customers
+- AI tools (reason via your client's model — the server holds no LLM key): sales briefings, reorder suggestions, anomaly detection, category suggestions, customer-message drafts
+- Predefined prompt workflows: daily briefing, weekly sales report, inventory health check, end-of-day closeout, customer lookup, monthly tax summary
 
-- Employee, shift, category, modifier, tax, and device lookups; best-selling items
-
-**What it cannot do (by design):** process refunds, capture payments, void charges, delete records. Those stay in the Clover dashboard. Multi-tenant hosted mode (many merchants behind one deploy) needs a persistent credential store — planned for v2 phase 2.
+**What it cannot do (by design):** process refunds, capture payments, void charges, delete records. Those stay in the Clover dashboard.
 
 ## Tools
 
 | Tool | Kind | Notes |
 |---|---|---|
-| `get_merchant_info` | read | name, currency, timezone, country |
+| `get_merchant_info` / `get_merchant_properties` | read | profile + POS config (banking fields never returned) |
 | `get_sales_summary` | read | aggregated window (see [Sales summary semantics](#sales-summary-semantics)) |
-| `list_payments` | read | SUCCESS payments in a window |
-| `list_orders` / `get_order` / `list_open_orders` | read | order history + detail |
+| `list_payments` / `list_refunds` / `list_tenders` | read | payments, refunds, tender types |
+| `list_orders` / `get_order` / `list_open_orders` / `list_order_types` | read | order history + detail |
 | `list_items` / `get_item` / `list_low_stock_items` | read | inventory + stock |
-| `list_categories` / `list_modifiers` / `list_taxes` | read | catalog structure (v1.1) |
-| `list_devices` | read | Clover terminals (v1.1) |
-| `get_top_items` | read | best-sellers by units in a window (v1.1) |
-| `list_employees` / `get_employee` | read | PINs never returned (v1.1, `EMPLOYEES_R`) |
-| `list_shifts` / `list_active_shifts` | read | clock-in/out records (v1.1, `EMPLOYEES_R`) |
+| `list_categories` / `list_modifiers` / `list_taxes` / `list_item_groups` / `list_attributes` / `list_tags` | read | catalog structure |
+| `list_devices` / `list_opening_hours` / `list_cash_events` | read | terminals, hours, cash-drawer log |
+| `get_top_items` | read | best-sellers by units in a window |
+| `list_employees` / `get_employee` / `list_shifts` / `list_active_shifts` / `list_roles` | read | PINs never returned (`EMPLOYEES_R`) |
 | `search_customers` / `get_customer` | read | cards never returned |
-| `create_customer` | write | additive; idempotency dup-check + `dry_run` |
-| `set_item_price_cents` | write | optimistic-lock pre-check, bounds, `dry_run` |
-| `set_item_stock_quantity` | write | absolute (not delta), pre-check, `dry_run` |
+| `whoami` | read | multi-tenant identity diagnostic (no secrets) |
+| `summarize_sales` / `inventory_reorder_suggestions` / `detect_sales_anomalies` / `suggest_item_categories` / `draft_customer_message` | AI | reason via your client's model; read-only suggestions |
+| `create_customer` / `update_customer` | write | dup-check + `dry_run`; update confirms via elicitation |
+| `create_item` / `create_category` / `create_order` / `add_line_item` | write | guarded: `dry_run` + confirm before writing |
+| `set_item_price_cents` / `set_item_stock_quantity` | write | optimistic-lock pre-check, bounds, `dry_run` |
 
 Every tool carries MCP behaviour annotations (`readOnlyHint` / `destructiveHint` / `idempotentHint`) so clients can parallelize reads and prompt before writes.
 
