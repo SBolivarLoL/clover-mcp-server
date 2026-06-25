@@ -2,7 +2,7 @@ name: Release
 
 # Tag-triggered. Push a vX.Y.Z tag to build artifacts, create a GitHub Release,
 # and publish to PyPI via trusted publishing (OIDC — no token stored in the repo).
-# The MCP Registry listing is handled by publish-registry.yml. See RELEASING.md.
+# The MCP Registry listing is handled by publish-registry.yml.
 on:
   push:
     tags:

@@ -30,6 +30,8 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 |---|---|---|---|
 | `/v3/merchants/{mId}/orders` | GET | ✅ | `{elements:[],href}`. Pagination offset/limit; page while `len==limit`. AND filters via **repeated** `?filter=X&filter=Y` (no `filter[]=`). Time: `filter=createdTime>=<ms>&filter=createdTime<=<ms>`. `state=open` valid. expand=lineItems,payments. Empty list → 200, never 404. |
 | `/v3/merchants/{mId}/orders/{orderId}` | GET | ✅ | expand=lineItems.modifications,lineItems.discounts,payments,discounts. `get_order` surfaces `line_items` (with `item_id`, `modifications`, `discounts`), `payments` (shaped via `shape_payment` → no card data), and order-level `discounts`. Live order 2026-06-24: line item carries `item.id`/`name`/`price`/`refunded`/`exchanged`/`isRevenue`. 404 body `{"message":"Not Found","details":"Order not found"}`. Never expand customers.cards. ⚠️ `serviceCharge` (expandable) is a **percentage** definition `{id,name,enabled,percentageDecimal}` — no per-order computed dollar amount, so service charges aren't summed in `get_sales_summary`. |
+| `/v3/merchants/{mId}/orders` | POST | ✅ | `create_order` (guarded). Body `{}` (optional `note`) creates an OPEN order. Sandbox-verified live 2026-06-24. Requires ORDERS_W. Never captures payment. |
+| `/v3/merchants/{mId}/orders/{orderId}/line_items` | POST | ✅ | `add_line_item` (guarded). Body `{item:{id}}` copies name/price from the catalog item. Sandbox-verified live 2026-06-24. Requires ORDERS_W. |
 
 ---
 
@@ -74,8 +76,6 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 |---|---|---|---|
 | `/v3/merchants/{mId}/customers` | GET | ✅ | `{elements:[],href}`. offset/limit. expand=emailAddresses,phoneNumbers,addresses,orders. ⚠️ filter fields are **flat**: `filter=phoneNumber=`, `filter=emailAddress=`, `filter=fullName=` (NOT nested `phoneNumbers.phoneNumber`). Supported: customerSince, deletedTime, emailAddress, firstName, fullName, id, lastName, marketingAllowed, phoneNumber. |
 | `/v3/merchants/{mId}/customers/{customerId}` | GET | ✅ | expand=emailAddresses,phoneNumbers,addresses,orders. 404 body `{"message":"Not Found","details":"Customer not found"}`. Cards never returned by shaper. |
-| `/v3/merchants/{mId}/orders` | POST | ✅ | `create_order` (guarded). Body `{}` (optional `note`) creates an OPEN order. Sandbox-verified live 2026-06-24. Requires ORDERS_W. Never captures payment. |
-| `/v3/merchants/{mId}/orders/{orderId}/line_items` | POST | ✅ | `add_line_item` (guarded). Body `{item:{id}}` copies name/price from the catalog item. Sandbox-verified live 2026-06-24. Requires ORDERS_W. |
 | `/v3/merchants/{mId}/customers/{customerId}` | POST | ✅ | `update_customer` (guarded). ⚠️ Update is via **POST** — `PUT`/`PATCH` return **405** (verified). Body with any of `firstName`/`lastName`/`marketingAllowed`. Email/phone are sub-resources, not changed here. Sandbox-verified live 2026-06-24. Requires CUSTOMERS_W. |
 | `/v3/merchants/{mId}/customers` | POST | ✅ | body: `firstName`/`lastName` top-level; ⚠️ email/phone are **sub-resources** not flat fields — `emailAddresses:[{emailAddress}]`, `phoneNumbers:[{phoneNumber}]` in the create body (flat strings silently ignored). Response omits contacts unless `?expand=emailAddresses,phoneNumbers`. `marketingAllowed` ignored on sandbox. PUT/PATCH on customer → 405. Requires CUSTOMERS_W. |
 
@@ -97,14 +97,3 @@ Sandbox base URL: `https://apisandbox.dev.clover.com`
 | Endpoint | Method | Status | Notes |
 |---|---|---|---|
 | `{base_url}/oauth/v2/refresh` | POST | ✅ | Same host as REST API (sandbox/na/eu/la follow base_url). Body JSON `{"client_id", "refresh_token"}` — **no client_secret**. Returns `{access_token, access_token_expiration, refresh_token, refresh_token_expiration}` (Unix ts). ⚠️ refresh_token is **single-use** — rotated pair must be persisted (token store handles this). Verified against docs.clover.com/dev/docs/refresh-access-tokens. |
-
----
-
-## Response shape notes (to fill in during audit)
-
-For each endpoint above, record:
-- Exact field names in response (especially money fields — cents vs dollars)
-- Pagination style (offset/limit or cursor)
-- Whether `expand` params are supported and exact expand token names
-- Rate limit observed (check response headers: `X-RateLimit-*`)
-- Any undocumented required headers or query params

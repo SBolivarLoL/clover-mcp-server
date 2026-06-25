@@ -2,9 +2,8 @@
 
 ## Reporting a vulnerability
 
-Please report security issues privately via GitHub Security Advisories
-("Report a vulnerability" on the repo's **Security** tab) rather than a public
-issue. We aim to acknowledge within a few days.
+See [SECURITY.md](../SECURITY.md): report privately to **mikeldev62@gmail.com**
+(not a public issue). Acknowledgement within 72 hours.
 
 ---
 
