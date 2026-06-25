@@ -8,11 +8,13 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 ### Security — multi-tenant hardening (REQUIRED before hosting real merchants)
 - **Forwarded-header identity is now fail-closed.** Routing tenants by a gateway
   header (`CLOVER_TENANT_HEADER`, e.g. `horizon-user-email`) is a spoofing risk
-  unless the gateway strips client-supplied copies. The server now refuses to start
-  **and** refuses per request unless `CLOVER_TRUST_IDENTITY_HEADER=true` is set — an
-  explicit opt-in after running the header-spoofing test. `whoami` surfaces the
-  trust state and the test procedure. (Existing header-based multi-tenant deploys
-  must set this flag after verifying their gateway.)
+  unless the gateway strips client-supplied copies. Without
+  `CLOVER_TRUST_IDENTITY_HEADER=true`, the server **boots but refuses every data
+  call** (`request_tenant_key` fails closed) and logs a startup warning — it does
+  not hard-fail, so `whoami` stays reachable to run the header-spoofing test that
+  the opt-in requires. `whoami` surfaces the trust state and the test procedure.
+  (Existing header-based multi-tenant deploys must set this flag after verifying
+  their gateway — until then they serve no data.)
 - **Per-tenant credential isolation.** Tenant entries can reference each token by
   its own env var (`access_token_env` / `refresh_token_env`) instead of inlining
   every merchant's plaintext token in one `CLOVER_TENANTS_JSON` blob — so each

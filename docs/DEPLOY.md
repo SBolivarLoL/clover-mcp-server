@@ -87,10 +87,11 @@ an unmapped user is refused (fail-closed). Re-run `whoami` to confirm
 `tenant_provisioned: true`.
 
 > ⚠️ **SECURITY — `CLOVER_TRUST_IDENTITY_HEADER` is mandatory for header routing.**
-> The server refuses to start with `CLOVER_TENANT_HEADER` set unless you also set
-> `CLOVER_TRUST_IDENTITY_HEADER=true`. A forwarded header can be spoofed unless your
-> gateway strips client-supplied copies — **run the header-spoofing test in
-> [docs/SECURITY.md](SECURITY.md) before setting this flag.** For stronger isolation,
+> With `CLOVER_TENANT_HEADER` set but this flag unset, the server boots and `whoami`
+> works, but **every data tool fails closed** (no merchant data) and a startup warning
+> is logged. A forwarded header can be spoofed unless your gateway strips client-supplied
+> copies — **run the header-spoofing test in [docs/SECURITY.md](SECURITY.md) using
+> `whoami`, then set `CLOVER_TRUST_IDENTITY_HEADER=true`.** For stronger isolation,
 > reference each token via its own env var
 > (`{"...":{"merchant_id":"ABC123","access_token_env":"CLOVER_TOKEN_ABC123"}}`)
 > instead of inlining tokens, and inject them from a secret manager.

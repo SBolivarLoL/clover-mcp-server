@@ -272,15 +272,16 @@ def test_request_tenant_key_untrusted_header_fails_closed(monkeypatch: pytest.Mo
         remote.request_tenant_key(cfg)
 
 
-def test_config_refuses_header_routing_without_trust(clean_env: pytest.MonkeyPatch) -> None:
-    """SECURITY: the server must refuse to START with header routing unless the
-    operator has explicitly opted in."""
-    clean_env.setenv("CLOVER_MERCHANT_ID", "M1")
-    clean_env.setenv("CLOVER_ACCESS_TOKEN", "tok")
+def test_config_boots_with_untrusted_header(clean_env: pytest.MonkeyPatch) -> None:
+    """SECURITY: header routing without the trust opt-in must still BOOT (so the
+    whoami diagnostic works for the spoofing test) — it is NOT a hard startup
+    error. The fail-closed enforcement is at request time (see
+    test_request_tenant_key_untrusted_header_fails_closed)."""
     clean_env.setenv("CLOVER_MULTI_MERCHANT", "true")
     clean_env.setenv("CLOVER_TENANT_HEADER", "horizon-user-email")
-    with pytest.raises(RuntimeError, match="CLOVER_TRUST_IDENTITY_HEADER"):
-        load_config()
+    cfg = load_config()  # must not raise
+    assert cfg.tenant_header == "horizon-user-email"
+    assert cfg.trust_identity_header is False
 
 
 def test_config_allows_header_routing_with_trust(clean_env: pytest.MonkeyPatch) -> None:

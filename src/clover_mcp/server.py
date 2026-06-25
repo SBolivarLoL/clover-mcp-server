@@ -196,6 +196,18 @@ async def _check_permissions() -> None:
             "happen on first use.",
             file=sys.stderr,
         )
+        # SECURITY warning (non-fatal): forwarded-header routing without the trust
+        # opt-in. The server still boots so `whoami` can run the header-spoofing
+        # test, but every DATA call fails closed in request_tenant_key until the
+        # gateway is verified and CLOVER_TRUST_IDENTITY_HEADER=true is set.
+        if config.tenant_header and not config.trust_identity_header:
+            print(
+                f"WARNING: CLOVER_TENANT_HEADER={config.tenant_header!r} routes tenants by a "
+                "forwarded header, but CLOVER_TRUST_IDENTITY_HEADER is not set. All data tools "
+                "will FAIL CLOSED until you run the header-spoofing test (docs/SECURITY.md) and "
+                "opt in. `whoami` still works so you can run that test.",
+                file=sys.stderr,
+            )
         return
 
     try:
