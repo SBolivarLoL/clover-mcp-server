@@ -146,6 +146,34 @@ def test_http_with_full_idp_builds_provider() -> None:
     assert provider is not None
 
 
+def test_http_without_audience_warns(capsys: pytest.CaptureFixture[str]) -> None:
+    """RFC 8707 defense in depth: building http auth without an audience must warn
+    (but still build — some single-app IdPs don't set aud)."""
+    provider = build_auth_provider(
+        _base_config(
+            transport="http",
+            auth_jwks_uri="https://idp.example.com/.well-known/jwks.json",
+            auth_issuer="https://idp.example.com/",
+            public_url="https://mcp.example.com",
+        )
+    )
+    assert provider is not None
+    assert "CLOVER_AUTH_AUDIENCE" in capsys.readouterr().err
+
+
+def test_http_with_audience_does_not_warn(capsys: pytest.CaptureFixture[str]) -> None:
+    build_auth_provider(
+        _base_config(
+            transport="http",
+            auth_jwks_uri="https://idp.example.com/.well-known/jwks.json",
+            auth_issuer="https://idp.example.com/",
+            auth_audience="clover-mcp",
+            public_url="https://mcp.example.com",
+        )
+    )
+    assert "CLOVER_AUTH_AUDIENCE" not in capsys.readouterr().err
+
+
 @pytest.mark.asyncio
 async def test_create_server_fails_closed_without_idp(clean_env: pytest.MonkeyPatch) -> None:
     """The hosted factory must refuse to construct without an IdP, even if

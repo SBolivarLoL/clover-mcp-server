@@ -319,6 +319,24 @@ def shape_tax(raw: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def shape_discount(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project a merchant-level discount (catalogue entry). `amount` is cents
+    (a fixed discount), `percentage` is a whole-number percent — only one is set."""
+    return _pick(raw, "id", "name", "amount", "percentage")
+
+
+def shape_tip_suggestion(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project a tip-suggestion preset. `percentage` is a whole-number percent;
+    `amount` (cents) is set instead for flat-amount presets."""
+    return _pick(raw, "id", "name", "percentage", "amount", "isEnabled", "isDefault")
+
+
+def shape_service_charge(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project the default service charge. `percentage` is the human percent;
+    `percentageDecimal` is Clover's raw encoding (percent * 10_000)."""
+    return _pick(raw, "id", "name", "enabled", "percentage", "percentageDecimal")
+
+
 def shape_role(raw: dict[str, Any]) -> dict[str, Any]:
     """Project an employee role. `systemRole` is the built-in category
     (EMPLOYEE / MANAGER / ADMIN); `name` is the merchant-facing label."""

@@ -120,4 +120,10 @@ This document is engineering guidance, **not legal advice.**
 - **No payment rails** — no payment capture, refunds, voids, charge creation, or
   record deletes, by design.
 - **Remote mode is authenticated** — `CLOVER_TRANSPORT=http` refuses to start
-  without layer-1 OAuth (JWKS + issuer + public URL).
+  without layer-1 OAuth (JWKS + issuer + public URL). It also warns at startup if
+  `CLOVER_AUTH_AUDIENCE` is unset, so tokens get bound to this resource (RFC 8707).
+- **Browser-origin hardening is the proxy's job** — every HTTP request needs a valid
+  bearer JWT, which already defeats DNS-rebinding / CSRF (a browser can't forge a
+  token). For defense in depth, terminate behind a reverse proxy / gateway that
+  validates the `Host` and `Origin` headers (the MCP Streamable-HTTP recommendation);
+  clover-mcp does not re-implement that check.

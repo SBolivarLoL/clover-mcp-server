@@ -12,7 +12,9 @@ from clover_mcp.shaping import (
     shape_merchant_properties,
     shape_opening_hours,
     shape_order_type,
+    shape_service_charge,
     shape_tender,
+    shape_tip_suggestion,
 )
 
 
@@ -65,6 +67,22 @@ async def list_opening_hours(client: CloverClient) -> dict[str, Any]:
     async for el in client.iterate("/opening_hours", limit=100):
         hours.append(shape_opening_hours(el))
     return {"opening_hours": hours, "count": len(hours)}
+
+
+async def list_tip_suggestions(client: CloverClient) -> dict[str, Any]:
+    """Return the merchant's tip-suggestion presets (percentage or flat amount).
+    Requires MERCHANT_R."""
+    suggestions: list[dict[str, Any]] = []
+    async for el in client.iterate("/tip_suggestions", limit=100):
+        suggestions.append(shape_tip_suggestion(el))
+    return {"tip_suggestions": suggestions, "count": len(suggestions)}
+
+
+async def get_default_service_charge(client: CloverClient) -> dict[str, Any]:
+    """Return the merchant's default service charge configuration (a single object:
+    name, whether enabled, and the percentage). Requires MERCHANT_R."""
+    raw = await client.get("/default_service_charge")
+    return shape_service_charge(raw)
 
 
 async def list_cash_events(client: CloverClient, limit: int = 50) -> dict[str, Any]:
