@@ -1,9 +1,9 @@
 # Roadmap
 
 Working list of what's next. Shipped state: **0.5.0** on PyPI + the MCP Registry
-(44 tools, 6 prompts, both auth modes, multi-tenant + hosted OAuth, security
+(47 tools, 6 prompts, both auth modes, multi-tenant + hosted OAuth, security
 hardened). Full design context lives in the private build plan; this file is the
-actionable backlog.
+actionable backlog. Research + gap analysis: [docs/research/](docs/research/).
 
 Each tool follows the same recipe: **audit the endpoint → add a shaper projection
 → implement → annotate (`ToolAnnotations`) → tests (happy + error) → add the

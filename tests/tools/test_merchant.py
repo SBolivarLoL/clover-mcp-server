@@ -9,12 +9,14 @@ import respx
 from clover_mcp.client import CloverClient
 from clover_mcp.errors import CloverAPIError
 from clover_mcp.tools.merchant import (
+    get_default_service_charge,
     get_merchant_info,
     get_merchant_properties,
     list_cash_events,
     list_opening_hours,
     list_order_types,
     list_tenders,
+    list_tip_suggestions,
 )
 from tests.conftest import TEST_MERCHANT_ID
 
@@ -223,3 +225,68 @@ async def test_list_cash_events(client: CloverClient, mock_http: respx.Router) -
 async def test_list_cash_events_rejects_bad_limit(client: CloverClient) -> None:
     with pytest.raises(ValueError, match="limit"):
         await list_cash_events(client, limit=0)
+
+
+@pytest.mark.asyncio
+async def test_list_tip_suggestions(client: CloverClient, mock_http: respx.Router) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/tip_suggestions"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                # Sandbox-verified element shape (2026-06-29): percentage-based presets
+                "elements": [
+                    {
+                        "id": "TS1",
+                        "percentage": 20,
+                        "isEnabled": True,
+                        "href": "https://sandbox.dev.clover.com/x",
+                    }
+                ]
+            },
+        )
+    )
+    result = await list_tip_suggestions(client)
+    assert result["count"] == 1
+    ts = result["tip_suggestions"][0]
+    assert ts["percentage"] == 20
+    assert ts["isEnabled"] is True
+    assert "href" not in ts
+
+
+@pytest.mark.asyncio
+async def test_get_default_service_charge(client: CloverClient, mock_http: respx.Router) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/default_service_charge"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            # Sandbox-verified single-object shape (2026-06-29)
+            json={
+                "id": "SC1",
+                "name": "Service Charge",
+                "enabled": False,
+                "percentage": 10,
+                "percentageDecimal": 100000,
+                "href": "https://sandbox.dev.clover.com/x",
+            },
+        )
+    )
+    result = await get_default_service_charge(client)
+    assert result["name"] == "Service Charge"
+    assert result["enabled"] is False
+    assert result["percentage"] == 10
+    assert result["percentageDecimal"] == 100000
+    assert "href" not in result
+
+
+@pytest.mark.asyncio
+async def test_get_default_service_charge_403(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/default_service_charge"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(403, json={"message": "Merchant not authorized"})
+    )
+    with pytest.raises(CloverAPIError) as exc_info:
+        await get_default_service_charge(client)
+    assert exc_info.value.status_code == 403

@@ -12,6 +12,7 @@ from clover_mcp.errors import CloverAPIError
 from clover_mcp.tools.inventory import (
     get_item,
     list_attributes,
+    list_discounts,
     list_items,
     list_low_stock_items,
     list_tags,
@@ -575,3 +576,42 @@ async def test_list_tags(client: CloverClient, mock_http: respx.Router) -> None:
     assert result["count"] == 1
     assert result["tags"][0]["name"] == "Seasonal"
     assert "href" not in result["tags"][0]
+
+
+DISCOUNTS_PATH = f"/v3/merchants/{TEST_MERCHANT_ID}/discounts"
+
+
+@pytest.mark.asyncio
+async def test_list_discounts(client: CloverClient, mock_http: respx.Router) -> None:
+    mock_http.get(DISCOUNTS_PATH).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "elements": [
+                    {
+                        "id": "D1",
+                        "name": "Happy Hour",
+                        "percentage": 15,
+                        "href": "https://sandbox.dev.clover.com/x",
+                    },
+                    {"id": "D2", "name": "$5 off", "amount": 500},
+                ]
+            },
+        )
+    )
+    result = await list_discounts(client)
+    assert result["count"] == 2
+    assert result["discounts"][0]["name"] == "Happy Hour"
+    assert result["discounts"][0]["percentage"] == 15
+    assert result["discounts"][1]["amount"] == 500
+    assert "href" not in result["discounts"][0]
+
+
+@pytest.mark.asyncio
+async def test_list_discounts_403(client: CloverClient, mock_http: respx.Router) -> None:
+    mock_http.get(DISCOUNTS_PATH).mock(
+        return_value=httpx.Response(403, json={"message": "Inventory not authorized"})
+    )
+    with pytest.raises(CloverAPIError) as exc_info:
+        await list_discounts(client)
+    assert exc_info.value.status_code == 403

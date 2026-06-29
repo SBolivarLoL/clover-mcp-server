@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import sys
 from typing import Any
 
 from clover_mcp.config import Config
@@ -45,6 +46,18 @@ def build_auth_provider(config: Config) -> Any | None:
             "CLOVER_TRANSPORT=http requires layer-1 OAuth (resource server). Missing: "
             + ", ".join(missing)
             + ". Refusing to serve an unauthenticated remote MCP server."
+        )
+
+    # SECURITY (RFC 8707, defense in depth): without an audience the verifier accepts
+    # any validly-signed token from the issuer — a token minted for a *different*
+    # resource served by the same IdP could be replayed here. Warn (don't fail: some
+    # single-app IdPs don't set aud) so the operator can bind it.
+    if not config.auth_audience:
+        print(
+            "WARNING: CLOVER_TRANSPORT=http without CLOVER_AUTH_AUDIENCE — bearer tokens are "
+            "not audience-bound (RFC 8707). Set CLOVER_AUTH_AUDIENCE to this server's resource "
+            "identifier so tokens issued for other resources can't be replayed here.",
+            file=sys.stderr,
         )
 
     # Imported lazily so stdio installs never pay for the auth stack.

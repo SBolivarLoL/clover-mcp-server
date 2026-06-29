@@ -42,6 +42,7 @@ from clover_mcp.tools.inventory import create_item as _create_item
 from clover_mcp.tools.inventory import get_item as _get_item
 from clover_mcp.tools.inventory import list_attributes as _list_attributes
 from clover_mcp.tools.inventory import list_categories as _list_categories
+from clover_mcp.tools.inventory import list_discounts as _list_discounts
 from clover_mcp.tools.inventory import list_item_groups as _list_item_groups
 from clover_mcp.tools.inventory import list_items as _list_items
 from clover_mcp.tools.inventory import list_low_stock_items as _list_low_stock_items
@@ -50,6 +51,7 @@ from clover_mcp.tools.inventory import list_tags as _list_tags
 from clover_mcp.tools.inventory import list_taxes as _list_taxes
 from clover_mcp.tools.inventory import set_item_price_cents as _set_item_price_cents
 from clover_mcp.tools.inventory import set_item_stock_quantity as _set_item_stock_quantity
+from clover_mcp.tools.merchant import get_default_service_charge as _get_default_service_charge
 from clover_mcp.tools.merchant import get_merchant_info as _get_merchant_info
 from clover_mcp.tools.merchant import get_merchant_properties as _get_merchant_properties
 from clover_mcp.tools.merchant import list_cash_events as _list_cash_events
@@ -57,6 +59,7 @@ from clover_mcp.tools.merchant import list_devices as _list_devices
 from clover_mcp.tools.merchant import list_opening_hours as _list_opening_hours
 from clover_mcp.tools.merchant import list_order_types as _list_order_types
 from clover_mcp.tools.merchant import list_tenders as _list_tenders
+from clover_mcp.tools.merchant import list_tip_suggestions as _list_tip_suggestions
 from clover_mcp.tools.orders import add_line_item as _add_line_item
 from clover_mcp.tools.orders import create_order as _create_order
 from clover_mcp.tools.orders import get_order as _get_order
@@ -447,6 +450,12 @@ async def list_taxes() -> dict[str, Any]:
 
 
 @mcp.tool(annotations=_READ)
+async def list_discounts() -> dict[str, Any]:
+    """Return the merchant's discount catalogue (fixed-amount or percentage). Requires INVENTORY_R."""
+    return await _list_discounts(_get_client())
+
+
+@mcp.tool(annotations=_READ)
 async def list_devices() -> dict[str, Any]:
     """Return the merchant's Clover devices/terminals. Requires MERCHANT_R."""
     return await _list_devices(_get_client())
@@ -476,6 +485,19 @@ async def list_order_types() -> dict[str, Any]:
 async def list_opening_hours() -> dict[str, Any]:
     """Return the merchant's opening-hours sets (per-day time ranges). Requires MERCHANT_R."""
     return await _list_opening_hours(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_tip_suggestions() -> dict[str, Any]:
+    """Return the merchant's tip-suggestion presets (percentage or flat amount). Requires MERCHANT_R."""
+    return await _list_tip_suggestions(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def get_default_service_charge() -> dict[str, Any]:
+    """Return the merchant's default service charge configuration (name, enabled, percentage).
+    Requires MERCHANT_R."""
+    return await _get_default_service_charge(_get_client())
 
 
 @mcp.tool(annotations=_READ)

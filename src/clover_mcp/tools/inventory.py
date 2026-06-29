@@ -12,6 +12,7 @@ from clover_mcp.confirm import confirm_write, confirmation_required
 from clover_mcp.shaping import (
     shape_attribute,
     shape_category,
+    shape_discount,
     shape_item,
     shape_item_group,
     shape_modifier_group,
@@ -115,6 +116,17 @@ async def list_item_groups(client: CloverClient) -> dict[str, Any]:
         if len(groups) >= 1000:
             break
     return {"item_groups": groups, "count": len(groups)}
+
+
+async def list_discounts(client: CloverClient) -> dict[str, Any]:
+    """Return the merchant's discount catalogue (fixed-amount or percentage).
+    Requires INVENTORY_R."""
+    discounts: list[dict[str, Any]] = []
+    async for el in client.iterate("/discounts", limit=100):
+        discounts.append(shape_discount(el))
+        if len(discounts) >= 1000:
+            break
+    return {"discounts": discounts, "count": len(discounts)}
 
 
 async def list_modifiers(client: CloverClient) -> dict[str, Any]:

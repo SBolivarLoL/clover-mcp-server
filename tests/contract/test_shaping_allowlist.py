@@ -11,6 +11,7 @@ from clover_mcp.shaping import (
     shape_category,
     shape_customer,
     shape_device,
+    shape_discount,
     shape_employee,
     shape_item,
     shape_item_group,
@@ -23,10 +24,12 @@ from clover_mcp.shaping import (
     shape_payment,
     shape_refund,
     shape_role,
+    shape_service_charge,
     shape_shift,
     shape_tag,
     shape_tax,
     shape_tender,
+    shape_tip_suggestion,
 )
 
 BANNED_KEYS = {"pin", "unhashedPin", "cards", "cardTransaction", "href", "token", "pan"}
@@ -159,6 +162,9 @@ def test_v11_list_shapers_strip_href() -> None:
         shape_cash_event,
         shape_attribute,
         shape_tag,
+        shape_discount,
+        shape_tip_suggestion,
+        shape_service_charge,
     ):
         _assert_no_banned(shaper(dict(dirty)))
 
