@@ -16,6 +16,11 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 - **Latency logging** — `CLOVER_LATENCY_LOG=true` emits per-request `latency_ms`
   lines to stderr.
 
+### Added — eval & benchmark
+- **scripts/benchmark.py + docs/eval.md** — correctness eval (leak gate on live
+  sandbox data, 28/28 read tools), latency percentiles (p50/p95), and a bounded
+  load test, with methodology and failure analysis.
+
 ## [0.6.0] — 2026-07-01
 Three read tools closing gaps found in a full Clover-API surface review, plus a
 defense-in-depth auth warning and a documented path from sandbox to production.
