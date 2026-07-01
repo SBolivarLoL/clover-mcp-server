@@ -3,7 +3,7 @@
   "name": "io.github.SBolivarLoL/clover-mcp",
   "title": "Clover POS",
   "description": "Clover POS for a single merchant: sales, inventory, orders, customers (reads + safe writes).",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "repository": {
     "url": "https://github.com/SBolivarLoL/clover-mcp-server",
     "source": "github"
@@ -12,7 +12,7 @@
     {
       "registryType": "pypi",
       "identifier": "clover-mcp",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "transport": { "type": "stdio" },
       "runtimeHint": "uvx",
       "environmentVariables": [
