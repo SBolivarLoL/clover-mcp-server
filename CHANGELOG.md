@@ -27,6 +27,13 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 - **docs/DEMO.md + scripts/demo.py** — a runnable and a narrated 5-minute demo
   (read-only + dry-run; nothing is mutated).
 
+### Added — enterprise identity docs
+- **docs/enterprise-identity.md** — how SSO/SAML, SCIM, audit logging, and
+  multi-tenant authorization map onto this resource server (IdP/gateway own login
+  and provisioning; the server consumes validated identity and enforces per-tenant
+  isolation, fail-closed), with a responsibility matrix and SCIM→tenant-lifecycle
+  mapping.
+
 ## [0.6.0] — 2026-07-01
 Three read tools closing gaps found in a full Clover-API surface review, plus a
 defense-in-depth auth warning and a documented path from sandbox to production.
