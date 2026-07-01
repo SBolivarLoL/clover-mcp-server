@@ -186,6 +186,99 @@ curl -i -X POST https://YOUR_PUBLIC_URL/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
+## Path to production (sandbox → real Clover merchants)
+
+Everything above can run against the **sandbox** with zero cost and no business —
+that is the intended development/demo environment, and it's a complete, honest
+story for a proof-of-concept. Going to **real** Clover data is a separate axis
+from where you host the MCP server, and it has hard prerequisites.
+
+### The reality (why you can't just flip `CLOVER_SANDBOX=false`)
+
+- Sandbox and production are **completely walled off** — separate accounts, no
+  data migration, production devices provisioned only through a Clover reseller.
+- You **cannot fabricate a production merchant.** Production access is gated on
+  real identity verification (passport/ID + proof of address) and, for live
+  merchants, an underwritten Clover account.
+- **As the developer you don't own the merchant.** You go live by publishing an
+  **app that real merchants install** (OAuth); their data, their consent. This
+  server already implements that model (OAuth 2.1 resource server + per-tenant
+  routing — section B and the multi-tenant notes above).
+
+### Two production credential models
+
+| Model | Fits when | Auth | Clover requirements |
+|---|---|---|---|
+| **Own-merchant API token** | You run it on **your own** Clover business | `CLOVER_AUTH_MODE=token`, paste the token | A real Clover merchant account you control; generate a token in the Dashboard. No app review. |
+| **OAuth app** | You serve **other** merchants / want App Market distribution | `CLOVER_AUTH_MODE=oauth_refresh` (or hosted-platform auth) | A **production developer account** + a **production app** that passes Clover's **app approval**. |
+
+If you don't have a business, the OAuth-app model is your only path to real data.
+
+### Actionable checklist (OAuth-app path)
+
+- [ ] **1. Create a Global Developer account** — one login for both sandbox and
+      production, switchable from one dashboard. Free; the foundation for
+      everything else. ([global platform](https://docs.clover.com/dev/docs/global-developer-platform-get-started))
+- [ ] **2. Keep building/validating in sandbox** — you are here. Prove the app
+      works against test merchants before any approval. ([test merchants](https://docs.clover.com/dev/docs/use-test-merchants-dashboard))
+- [ ] **3. Get the production developer account approved** — submit individual/
+      corporate info, a valid ID, and proof of address. ([approval](https://docs.clover.com/dev/docs/approval), [developer accounts](https://docs.clover.com/dev/docs/developer-accounts))
+- [ ] **4. Create a production app** — in REST Configuration set the Default OAuth
+      Response to **Code**, set the OAuth redirect URL, and declare the permissions
+      below. ([create a production app](https://docs.clover.com/dev/docs/creating-a-production-app))
+- [ ] **5. Submit the app for approval** — Clover requires a **functional
+      walkthrough video**, an **in-line justification per requested permission**
+      (table below), and a **support phone + hours**. ([approval](https://docs.clover.com/dev/docs/approval))
+- [ ] **6. First merchant installs it** — OAuth issues *their* tokens; route by
+      the authenticated identity (multi-tenant) or run one deploy per merchant.
+- [ ] **7. Flip config to production** — `CLOVER_SANDBOX=false`, set the correct
+      `CLOVER_REGION` (`na`/`eu`/`la`), and supply the merchant's production
+      credentials. Verify with `get_merchant_info` returning the real business.
+
+> ⚠️ **Don't submit for approval prematurely.** Approval expects a real,
+> demonstrable app (the video + permission justifications are real work). Do
+> step 1 now; do steps 3–5 only when you have a polished app and ideally a first
+> merchant lined up — the gap to "real" is *one willing merchant + app approval*,
+> not a business of your own.
+
+### Permission justifications for this server (ready for app submission)
+
+Request **only** the scopes for the tools you ship (read-only deployments need no
+`*_W`). Each line is a paste-ready justification for the approval form:
+
+| Scope | Justification (what the app does with it) |
+|---|---|
+| `MERCHANT_R` | Read merchant profile, devices, tenders, order types, opening hours, cash events, tip presets, and service-charge config for reporting and setup display. |
+| `INVENTORY_R` | Read items, stock, categories, modifiers, taxes, tags, attributes, and discounts to answer inventory and catalog questions. |
+| `ORDERS_R` | Read orders, line items, and best-sellers for order history and sales analysis. |
+| `PAYMENTS_R` | Read payments and refunds to produce sales summaries and reconciliation. |
+| `CUSTOMERS_R` | Look up customers by name/phone/email (card data never read). |
+| `EMPLOYEES_R` *(optional)* | Read employees, roles, and shifts for staffing reports. |
+| `INVENTORY_W` | Update item price/stock and create items/categories — guarded by dry-run, confirmation, and optimistic-lock pre-checks. |
+| `CUSTOMERS_W` | Create/update customer records — guarded by duplicate-check and confirmation. |
+| `ORDERS_W` | Create orders and add line items — guarded by confirmation; never captures payment. |
+
+> This server **never** requests payment-capture/refund/void scopes and exposes
+> no deletes — call that out in the submission; narrow scopes speed up approval.
+
+> 📋 **Full submission kit** — app description, points of integration, a
+> scene-by-scene functional-video script, and a pre-submission checklist:
+> [docs/clover-app-submission.md](clover-app-submission.md).
+
+### Recommendation
+
+For now, **stay on sandbox** — the server is fully validated there and it's a
+legitimate demo (just label it as sandbox-backed). When you're ready to make it a
+real product, do checklist step 1 today (free, unblocks everything), and pursue
+steps 3–6 once you have a first merchant or a submission-ready app.
+
+Sources: [Clover environments](https://docs.clover.com/dev/docs/clover-environments) ·
+[Production developer accounts](https://docs.clover.com/dev/docs/developer-accounts) ·
+[Account & app approval](https://docs.clover.com/dev/docs/approval) ·
+[Create a production app](https://docs.clover.com/dev/docs/creating-a-production-app) ·
+[Test merchants](https://docs.clover.com/dev/docs/use-test-merchants-dashboard) ·
+[Global developer platform](https://docs.clover.com/dev/docs/global-developer-platform-get-started)
+
 ## Still local? Do nothing.
 
 `uvx clover-mcp` (stdio, single merchant) is unchanged and needs none of the
