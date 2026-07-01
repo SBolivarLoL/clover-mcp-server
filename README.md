@@ -183,6 +183,25 @@ ruff check src/
 mypy src/clover_mcp/
 ```
 
+## Observability
+
+All observability output goes to **stderr** (stdout carries the MCP stdio protocol).
+
+- **Audit logging** (on by default) — every write emits one structured JSON line:
+  `{"audit":"write","method":"PUT","path":"/items/…","status":200,"merchant":"…"}`.
+  No request bodies or secrets. Disable with `CLOVER_AUDIT_LOG=false`.
+- **Latency logging** — set `CLOVER_LATENCY_LOG=true` to emit a `latency_ms` line
+  per Clover HTTP call.
+- **Distributed tracing (optional)** — install the OpenTelemetry extra and point it
+  at your collector; every Clover call becomes a span. Without it, tracing is a
+  zero-cost no-op (no dependency added):
+
+  ```bash
+  uv pip install -e ".[otel]"
+  export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+  export OTEL_SERVICE_NAME=clover-mcp
+  ```
+
 ## Security
 
 See [SECURITY.md](SECURITY.md) for the vulnerability disclosure policy.

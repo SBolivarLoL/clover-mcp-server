@@ -35,6 +35,14 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
 ]
+# Optional: install with `pip install clover-mcp[otel]` to emit real OpenTelemetry
+# spans. Without it, tracing is a no-op and observability falls back to structured
+# stderr latency/audit lines — no runtime dependency for users who don't want it.
+otel = [
+    "opentelemetry-api>=1.20",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp>=1.20",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/clover_mcp"]
@@ -62,4 +70,10 @@ files = [
     "src/clover_mcp/shaping.py",
     "src/clover_mcp/auth.py",
     "src/clover_mcp/client.py",
+    "src/clover_mcp/observability.py",
 ]
+
+# OpenTelemetry is an optional extra — don't require its stubs to type-check.
+[[tool.mypy.overrides]]
+module = ["opentelemetry.*"]
+ignore_missing_imports = true
