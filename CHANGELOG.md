@@ -21,6 +21,12 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   sandbox data, 28/28 read tools), latency percentiles (p50/p95), and a bounded
   load test, with methodology and failure analysis.
 
+### Added — architecture & demo
+- **docs/ARCHITECTURE.md** — system + guarded-write sequence diagrams (Mermaid)
+  and the module responsibility table.
+- **docs/DEMO.md + scripts/demo.py** — a runnable and a narrated 5-minute demo
+  (read-only + dry-run; nothing is mutated).
+
 ## [0.6.0] — 2026-07-01
 Three read tools closing gaps found in a full Clover-API surface review, plus a
 defense-in-depth auth warning and a documented path from sandbox to production.
