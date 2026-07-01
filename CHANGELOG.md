@@ -6,6 +6,16 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — observability
+- **Audit logging** — every write emits a structured JSON line to stderr
+  (`method`, `path`, `status`, `merchant`; no bodies or secrets). On by default;
+  disable with `CLOVER_AUDIT_LOG=false`.
+- **OpenTelemetry tracing (optional)** — every Clover HTTP call is wrapped in a
+  span. Install the `otel` extra and configure an OTLP exporter for real
+  distributed traces; without it, tracing is a zero-cost no-op.
+- **Latency logging** — `CLOVER_LATENCY_LOG=true` emits per-request `latency_ms`
+  lines to stderr.
+
 ## [0.6.0] — 2026-07-01
 Three read tools closing gaps found in a full Clover-API surface review, plus a
 defense-in-depth auth warning and a documented path from sandbox to production.

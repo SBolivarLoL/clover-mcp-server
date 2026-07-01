@@ -21,6 +21,7 @@ from clover_mcp import __version__
 from clover_mcp.auth import TokenStore, refresh_access_token
 from clover_mcp.config import Config
 from clover_mcp.errors import raise_for_status
+from clover_mcp.observability import audit, traced
 
 _USER_AGENT = f"clover-mcp/{__version__} (+https://github.com/SBolivarLoL/clover-mcp-server)"
 
@@ -83,24 +84,40 @@ class CloverClient:
         if not self._access_token and self._config.auth_mode == "oauth_refresh":
             self._access_token = await refresh_access_token(self._config, "")
 
-        resp = await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
+        # Trace the whole request (incl. retries) — a real OTel span if the operator
+        # configured an exporter, otherwise a no-op with an optional latency line.
+        async with traced("clover.http", method=method, path=path):
+            resp = await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
 
-        # 401 → refresh once (oauth_refresh only)
-        if resp.status_code == 401 and self._config.auth_mode == "oauth_refresh":
-            resp = await self._refresh_and_retry(method, url, **kwargs)
+            # 401 → refresh once (oauth_refresh only)
+            if resp.status_code == 401 and self._config.auth_mode == "oauth_refresh":
+                resp = await self._refresh_and_retry(method, url, **kwargs)
 
-        # 429 → single auto-retry if short wait
-        if resp.status_code == 429:
-            raw = resp.headers.get("Retry-After", "")
-            wait = int(raw) if raw.isdigit() else None
-            if wait is not None and wait <= 5:
-                await asyncio.sleep(wait)
+            # 429 → single auto-retry if short wait
+            if resp.status_code == 429:
+                raw = resp.headers.get("Retry-After", "")
+                wait = int(raw) if raw.isdigit() else None
+                if wait is not None and wait <= 5:
+                    await asyncio.sleep(wait)
+                    resp = await self._http.request(
+                        method, url, headers=self._auth_headers(), **kwargs
+                    )
+
+            # 5xx reads → single retry with 1s backoff; writes never retry
+            if resp.status_code >= 500 and not is_write:
+                await asyncio.sleep(1)
                 resp = await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
 
-        # 5xx reads → single retry with 1s backoff; writes never retry
-        if resp.status_code >= 500 and not is_write:
-            await asyncio.sleep(1)
-            resp = await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
+        # Audit every mutation attempt — including failures — with the final status.
+        # No request bodies or secrets; path may carry resource ids (not sensitive).
+        if is_write:
+            audit(
+                "write",
+                method=method,
+                path=path,
+                status=resp.status_code,
+                merchant=self._config.merchant_id,
+            )
 
         raise_for_status(resp, context=context)
         return resp
