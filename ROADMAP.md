@@ -1,6 +1,6 @@
 # Roadmap
 
-Working list of what's next. Shipped state: **0.5.0** on PyPI + the MCP Registry
+Working list of what's next. Shipped state: **0.6.0** on PyPI + the MCP Registry
 (47 tools, 6 prompts, both auth modes, multi-tenant + hosted OAuth, security
 hardened). Full design context lives in the private build plan; this file is the
 actionable backlog. Research + gap analysis: [docs/research/](docs/research/).

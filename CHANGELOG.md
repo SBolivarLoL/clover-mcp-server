@@ -6,6 +6,28 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-07-01
+Three read tools closing gaps found in a full Clover-API surface review, plus a
+defense-in-depth auth warning and a documented path from sandbox to production.
+
+### Added — reads (sandbox-verified)
+- **`list_discounts`** (INVENTORY_R) — the merchant's discount catalogue.
+- **`list_tip_suggestions`** (MERCHANT_R) — tip-suggestion presets (percentage or flat).
+- **`get_default_service_charge`** (MERCHANT_R) — default service-charge config;
+  closes the `get_sales_summary` service-charge gap (orders expose only a percentage).
+
+### Security
+- **RFC 8707 audience binding** — http mode now logs a startup WARNING when
+  `CLOVER_AUTH_AUDIENCE` is unset, so bearer tokens get bound to this resource.
+
+### Docs
+- **docs/DEPLOY.md** — "Path to production" (sandbox → real merchants via the Clover
+  Developer Program) with a per-scope permission-justification table.
+- **docs/clover-app-submission.md** — app listing copy, permission justifications,
+  and a functional-video script for Clover app approval.
+- **docs/research/** — MCP best-practices + full Clover-API-surface research and a
+  consolidated gap analysis.
+
 ## [0.5.0] — 2026-06-25
 Multi-tenant security hardening — the gate to hosting real merchants. The
 forwarded-header trust boundary is now fail-closed (verified live: the

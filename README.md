@@ -4,7 +4,7 @@ MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, 
 
 <!-- mcp-name: io.github.SBolivarLoL/clover-mcp -->
 
-> **Status:** v0.5.0 — 47 tools, 6 prompts, both auth modes, 233 tests. Runs locally (stdio, single merchant) or remotely over HTTP with OAuth, single- or multi-tenant (see [docs/DEPLOY.md](docs/DEPLOY.md)). Endpoint contracts are sandbox-verified in [docs/endpoints.md](docs/endpoints.md).
+> **Status:** v0.6.0 — 47 tools, 6 prompts, both auth modes, 233 tests. Runs locally (stdio, single merchant) or remotely over HTTP with OAuth, single- or multi-tenant (see [docs/DEPLOY.md](docs/DEPLOY.md)). Endpoint contracts are sandbox-verified in [docs/endpoints.md](docs/endpoints.md).
 
 > ⚠️ **Independent project — not affiliated with, endorsed by, or sponsored by Clover Network, LLC or Fiserv, Inc.** "Clover" is a trademark of its respective owner and is used here only nominatively to describe interoperability. Provided **as is**, without warranty — see [Legal & disclaimer](#legal--disclaimer).
 

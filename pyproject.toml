@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "clover-mcp"
-version = "0.5.0"
+version = "0.6.0"
 description = "MCP server for the Clover POS REST API — sales, inventory, orders, customers, and employees for small businesses"
 readme = "README.md"
 license = { text = "MIT" }
