@@ -187,6 +187,10 @@ Correctness eval + latency/load benchmark against a sandbox:
 `uv run python scripts/benchmark.py` — methodology, results, and failure analysis
 in [docs/eval.md](docs/eval.md).
 
+Architecture (diagrams + module map): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Run a 5-minute demo: `uv run python scripts/demo.py` (or the runbook in
+[docs/DEMO.md](docs/DEMO.md)).
+
 ## Observability
 
 All observability output goes to **stderr** (stdout carries the MCP stdio protocol).
