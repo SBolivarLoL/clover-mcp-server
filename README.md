@@ -160,7 +160,8 @@ By default this runs locally over stdio for a single merchant. To run it remotel
   Metadata per RFC 9728, routes by token claim) and **refuses to start without an
   IdP** so it can't run open.
 
-Full setup for both in **[docs/DEPLOY.md](docs/DEPLOY.md)**.
+Full setup for both in **[docs/DEPLOY.md](docs/DEPLOY.md)**. How SSO/SAML, SCIM,
+audit, and multi-tenant authorization fit: **[docs/enterprise-identity.md](docs/enterprise-identity.md)**.
 
 ## Sales summary semantics
 
