@@ -183,6 +183,9 @@ per token store.)
 ## Verify after deploy
 
 ```bash
+# Liveness probe — unauthenticated, no Clover call. Point your load balancer here:
+curl https://YOUR_PUBLIC_URL/healthz          # → {"ok":true}
+
 # Protected Resource Metadata is public:
 curl https://YOUR_PUBLIC_URL/.well-known/oauth-protected-resource/mcp
 

@@ -8,8 +8,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
-
 _REGION_PROD: dict[str, str] = {
     "na": "https://api.clover.com",
     "eu": "https://api.eu.clover.com",
@@ -86,6 +84,10 @@ class Config:
 
 def load_config() -> Config:
     """Load and validate configuration from environment variables."""
+    # Load .env here (not at import) so merely importing this module never pulls
+    # a developer's real credentials into os.environ — tests import config freely.
+    load_dotenv()
+
     errors: list[str] = []
 
     def require(name: str) -> str:
@@ -162,12 +164,15 @@ def load_config() -> Config:
             )
         if not refresh_token and not stored.get("refresh_token"):
             errors.append("  • CLOVER_REFRESH_TOKEN is required (or populate the token store)")
-        for name, val in [
-            ("CLOVER_OAUTH_CLIENT_ID", oauth_client_id),
-            ("CLOVER_OAUTH_CLIENT_SECRET", oauth_client_secret),
-        ]:
-            if not val:
-                errors.append(f"  • {name} is required when CLOVER_AUTH_MODE=oauth_refresh")
+        if not oauth_client_id:
+            errors.append(
+                "  • CLOVER_OAUTH_CLIENT_ID is required when CLOVER_AUTH_MODE=oauth_refresh"
+            )
+        # CLOVER_OAUTH_CLIENT_SECRET is optional: Clover's v2 refresh accepts
+        # client_id + refresh_token alone (confirmed on a live sandbox). It's sent
+        # in the refresh body only when provided (auth.py), so an operator whose
+        # app requires it can set it — but no one is forced to handle a secret the
+        # refresh doesn't use.
 
     # validate region (triggers ValueError we convert to config error)
     try:

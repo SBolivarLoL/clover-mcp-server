@@ -114,6 +114,18 @@ register_prompts(mcp)
 register_resources(mcp)
 
 
+@mcp.custom_route("/healthz", methods=["GET"])
+async def _healthz(_request: Any) -> Any:
+    """Unauthenticated liveness probe for self-hosted HTTP behind a load balancer.
+
+    The /mcp path requires a bearer token, so an LB has nothing else to probe.
+    Deliberately makes NO Clover call — a probe must not spend rate limit or leak
+    whether Clover creds are reachable. Harmless in stdio (no HTTP server runs)."""
+    from starlette.responses import JSONResponse
+
+    return JSONResponse({"ok": True})
+
+
 async def create_server() -> FastMCP:
     """Hosted/remote entrypoint (e.g. FastMCP Cloud `fastmcp run server.py:create_server`).
 

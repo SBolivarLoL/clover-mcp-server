@@ -20,7 +20,9 @@ _MERCHANT_PATH = f"/v3/merchants/{TEST_MERCHANT_ID}"
 _REFRESH_PATH = "/oauth/v2/refresh"
 
 
-def _oauth_config(token_store: Path, access_token: str = "acc_old") -> Config:
+def _oauth_config(
+    token_store: Path, access_token: str = "acc_old", client_secret: str = ""
+) -> Config:
     return Config(
         merchant_id=TEST_MERCHANT_ID,
         access_token=access_token,
@@ -29,7 +31,7 @@ def _oauth_config(token_store: Path, access_token: str = "acc_old") -> Config:
         auth_mode="oauth_refresh",
         refresh_token="rt_seed",
         oauth_client_id="APPID",
-        oauth_client_secret="",
+        oauth_client_secret=client_secret,
         token_store=token_store,
     )
 
@@ -116,6 +118,48 @@ async def test_refresh_dedup_skips_when_store_already_newer(
 
     assert new == "acc_newer"
     assert not route.called
+
+
+@pytest.mark.asyncio
+async def test_refresh_includes_client_secret_when_set(
+    tmp_path: Path, mock_http: respx.Router
+) -> None:
+    """An operator whose Clover app requires a secret can set it — then it's sent."""
+    cfg = _oauth_config(tmp_path / "tokens.json", client_secret="csec")
+    route = mock_http.post(_REFRESH_PATH).mock(
+        return_value=httpx.Response(200, json={"access_token": "a", "refresh_token": "r"})
+    )
+
+    await refresh_access_token(cfg, failed_token="acc_old")
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["client_secret"] == "csec"
+
+
+@pytest.mark.asyncio
+async def test_refresh_failure_raises_clover_error(tmp_path: Path, mock_http: respx.Router) -> None:
+    """A failed refresh surfaces as CloverAPIError, not a raw httpx.HTTPStatusError."""
+    cfg = _oauth_config(tmp_path / "tokens.json")
+    mock_http.post(_REFRESH_PATH).mock(
+        return_value=httpx.Response(400, json={"message": "invalid_grant"})
+    )
+
+    with pytest.raises(CloverAPIError) as exc:
+        await refresh_access_token(cfg, failed_token="acc_old")
+
+    assert exc.value.status_code == 400
+
+
+def test_401_message_is_auth_mode_aware() -> None:
+    """The 401 remediation hint points at the refresh grant in oauth_refresh mode,
+    not at CLOVER_ACCESS_TOKEN (wrong advice there)."""
+    from clover_mcp.errors import raise_for_status
+
+    resp = httpx.Response(401, json={"message": "expired"})
+    with pytest.raises(CloverAPIError) as exc:
+        raise_for_status(resp, auth_mode="oauth_refresh")
+    assert "refresh" in exc.value.message.lower()
+    assert "CLOVER_ACCESS_TOKEN" not in exc.value.message
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 import respx
 
@@ -11,6 +13,19 @@ from clover_mcp.config import Config
 TEST_MERCHANT_ID = "TESTMERCHANT1"
 TEST_TOKEN = "test_access_token"
 TEST_BASE = "https://apisandbox.dev.clover.com"
+
+
+@pytest.fixture(autouse=True)
+def _scrub_clover_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test may see real CLOVER_* credentials from the developer's shell or
+    .env — scrub them before every test. Tests that need config set their own.
+
+    load_config() calls load_dotenv() at call time, so we also neutralize it here;
+    otherwise the developer's real .env would repopulate the vars mid-test."""
+    monkeypatch.setattr("clover_mcp.config.load_dotenv", lambda *a, **k: False)
+    for key in list(os.environ):
+        if key.startswith("CLOVER_"):
+            monkeypatch.delenv(key, raising=False)
 
 
 @pytest.fixture

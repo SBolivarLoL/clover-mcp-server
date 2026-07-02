@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from clover_mcp.errors import raise_for_status
+
 try:
     import fcntl  # POSIX advisory file locking
 except ImportError:  # pragma: no cover - Windows has no fcntl
@@ -135,13 +137,21 @@ async def refresh_access_token(config: Config, failed_token: str) -> str:
             # Latest refresh token wins (store, then env seed for the first refresh)
             refresh_token = current.get("refresh_token") or config.refresh_token
 
+            payload = {"client_id": config.oauth_client_id, "refresh_token": refresh_token}
+            # Sent only when the operator's app requires it — Clover's v2 refresh
+            # accepts client_id + refresh_token alone.
+            if config.oauth_client_secret:
+                payload["client_secret"] = config.oauth_client_secret
+
             async with httpx.AsyncClient(timeout=15) as http:
                 resp = await http.post(
                     _refresh_url(config),
-                    json={"client_id": config.oauth_client_id, "refresh_token": refresh_token},
+                    json=payload,
                     headers={"Accept": "application/json", "Content-Type": "application/json"},
                 )
-                resp.raise_for_status()
+                # A failed refresh (revoked grant, wrong client id) becomes an
+                # actionable CloverAPIError, not a raw httpx.HTTPStatusError.
+                raise_for_status(resp, context="OAuth token refresh", auth_mode="oauth_refresh")
                 body = resp.json()
 
             new_access = str(body["access_token"])
