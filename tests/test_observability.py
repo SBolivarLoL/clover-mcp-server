@@ -116,6 +116,28 @@ async def test_client_audit_includes_tenant_when_set(
 
 
 @pytest.mark.asyncio
+async def test_iterate_caps_pages_and_emits_note(
+    client: CloverClient, mock_http: respx.Router, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """iterate() stops at max_pages and emits a `note` — a truncated walk is never
+    silent (guards against a runaway page walk)."""
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/items"
+    # Always a full page → would paginate forever without the cap.
+    mock_http.get(path).mock(
+        return_value=httpx.Response(200, json={"elements": [{"id": "a"}, {"id": "b"}]})
+    )
+    seen = 0
+    async for _ in client.iterate("/items", limit=2, max_pages=3):
+        seen += 1
+    await client.close()
+
+    assert seen == 6  # 3 pages × 2 rows, then stop
+    notes = [json.loads(line) for line in capsys.readouterr().err.splitlines() if '"note"' in line]
+    assert notes[-1]["note"] == "pagination_capped"
+    assert notes[-1]["max_pages"] == 3
+
+
+@pytest.mark.asyncio
 async def test_client_does_not_audit_reads(
     client: CloverClient, mock_http: respx.Router, capsys: pytest.CaptureFixture[str], monkeypatch
 ) -> None:

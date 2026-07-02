@@ -69,6 +69,14 @@ def audit(event: str, **fields: Any) -> None:
         _emit({"audit": event, **fields})
 
 
+def note(event: str, **fields: Any) -> None:
+    """Emit a structured operational note to stderr (unconditional).
+
+    For events an operator should always see regardless of audit/latency toggles —
+    e.g. a pagination safety cap firing. Same rules: non-sensitive fields only."""
+    _emit({"note": event, **fields})
+
+
 def _tracer() -> Any:
     if _OTEL_TRACE is None:
         return None

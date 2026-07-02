@@ -6,16 +6,29 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Production-readiness hardening — the P0 items from the readiness review.
+Production-readiness hardening — the P0 and P1 items from the readiness review.
 
 ### Added
 - Audit lines now carry a UTC `ts`, and (multi-tenant) the resolved `tenant` key,
   so the write trail records **who acted and when** — not just which merchant.
+- **`GET /healthz`** — an unauthenticated liveness probe for self-hosted HTTP
+  behind a load balancer (the `/mcp` path requires a token). Makes no Clover call.
 
 ### Changed
 - Each Clover client caps in-flight requests at 5 (a per-token `asyncio.Semaphore`)
   to stay under Clover's ~5-concurrent-per-token limit during parallel reads and
   90-day fan-outs.
+- `iterate()` now has a `max_pages` safety ceiling (default 1000); if hit before
+  the data is exhausted it emits a structured `note` rather than walking forever.
+- `CLOVER_OAUTH_CLIENT_SECRET` is **optional** — Clover's v2 refresh accepts
+  `client_id` + `refresh_token` alone; the secret is sent only when set, so an
+  operator whose app requires it can provide it without forcing everyone to.
+- 401 remediation hints are auth-mode-aware — `oauth_refresh` mode points at the
+  refresh grant, not at `CLOVER_ACCESS_TOKEN`.
+- `.env` now loads inside `load_config()` (not at import), so importing `config`
+  no longer pulls real credentials into the environment; tests scrub `CLOVER_*`.
+- Pinned `fastmcp>=3.4,<4` — `uvx` resolves fresh per user, so an untested major
+  can't brick installs overnight.
 - CI enforces coverage — `pytest-cov` with `--cov-fail-under=85` (current 87%).
 
 ### Fixed
@@ -23,6 +36,8 @@ Production-readiness hardening — the P0 items from the readiness review.
   `flock` on the token store (re-reading under the lock), so replicas sharing one
   store can't both spend a single-use refresh token. Windows (no `fcntl`) falls
   back to the in-process lock.
+- A failed OAuth refresh now surfaces as a `CloverAPIError` with an actionable
+  message instead of a raw `httpx.HTTPStatusError`.
 
 ## [0.7.0] — 2026-07-01
 Production observability (audit logging + optional OpenTelemetry tracing/latency)

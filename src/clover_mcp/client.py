@@ -21,7 +21,7 @@ from clover_mcp import __version__
 from clover_mcp.auth import TokenStore, refresh_access_token
 from clover_mcp.config import Config
 from clover_mcp.errors import raise_for_status
-from clover_mcp.observability import audit, traced
+from clover_mcp.observability import audit, note, traced
 
 _USER_AGENT = f"clover-mcp/{__version__} (+https://github.com/SBolivarLoL/clover-mcp-server)"
 
@@ -29,6 +29,12 @@ _USER_AGENT = f"clover-mcp/{__version__} (+https://github.com/SBolivarLoL/clover
 # token (per tenant in multi-merchant mode), so a per-client semaphore keeps an
 # eager agent — parallel read tools, 90-day fan-outs — from tripping 429s.
 _MAX_CONCURRENT_REQUESTS = 5
+
+# Safety ceiling for iterate(): a backstop against an unbounded page walk (a
+# runaway aggregation, or an API that never returns a short final page). At the
+# common limit=100 this is 100k rows per call — far above any real window; when
+# it fires we emit a `note` so a truncated result is never silent.
+_MAX_PAGES = 1000
 
 
 class CloverClient:
@@ -131,7 +137,7 @@ class CloverClient:
                 fields["tenant"] = self._tenant
             audit("write", **fields)
 
-        raise_for_status(resp, context=context)
+        raise_for_status(resp, context=context, auth_mode=self._config.auth_mode)
         return resp
 
     async def get(self, path: str, **params: Any) -> dict[str, Any]:
@@ -153,18 +159,24 @@ class CloverClient:
         await self._send("DELETE", path, is_write=True, params=params)
 
     async def iterate(
-        self, path: str, *, limit: int = 100, **params: Any
+        self, path: str, *, limit: int = 100, max_pages: int = _MAX_PAGES, **params: Any
     ) -> AsyncIterator[dict[str, Any]]:
-        """Yield every element across paginated Clover list responses."""
+        """Yield every element across paginated Clover list responses.
+
+        Stops after `max_pages` as a safety backstop; if the cap is hit before the
+        data is exhausted, emits a `note` (so a truncated aggregate is never silent)
+        and stops rather than walking forever.
+        """
         offset = 0
-        while True:
+        for _page in range(max_pages):
             body = await self.get(path, limit=limit, offset=offset, **params)
             elements: list[dict[str, Any]] = body.get("elements", [])
             for el in elements:
                 yield el
             if len(elements) < limit:
-                break
+                return
             offset += limit
+        note("pagination_capped", path=path, max_pages=max_pages, rows=offset)
 
     async def close(self) -> None:
         await self._http.aclose()

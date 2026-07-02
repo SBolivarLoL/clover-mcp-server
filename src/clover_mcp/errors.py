@@ -15,8 +15,14 @@ class CloverAPIError(Exception):
         self.retry_after = retry_after
 
 
-def raise_for_status(response: httpx.Response, *, context: str = "") -> None:
-    """Parse a Clover error response and raise CloverAPIError with a clear message."""
+def raise_for_status(
+    response: httpx.Response, *, context: str = "", auth_mode: str = "token"
+) -> None:
+    """Parse a Clover error response and raise CloverAPIError with a clear message.
+
+    `auth_mode` ("token" | "oauth_refresh") only tailors the 401 remediation hint —
+    errors.py stays ignorant of Config; the caller passes the mode string.
+    """
     if response.is_success:
         return
 
@@ -38,7 +44,17 @@ def raise_for_status(response: httpx.Response, *, context: str = "") -> None:
     code = response.status_code
 
     if code == 401:
-        msg = f"Invalid or expired access token{ctx}. Regenerate your token or check CLOVER_ACCESS_TOKEN."
+        if auth_mode == "oauth_refresh":
+            msg = (
+                f"Invalid or expired access token{ctx}. The OAuth refresh failed or the "
+                "grant was revoked — re-run your token provisioning (scripts/get_sandbox_token.py) "
+                "or check the refresh grant / CLOVER_OAUTH_CLIENT_ID."
+            )
+        else:
+            msg = (
+                f"Invalid or expired access token{ctx}. "
+                "Regenerate your token or check CLOVER_ACCESS_TOKEN."
+            )
     elif code == 403:
         msg = f"Permission denied{ctx}: {clover_msg}. Check that your token has the required Clover permission scope."
     elif code == 404:
