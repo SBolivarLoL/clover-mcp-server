@@ -2,6 +2,10 @@
 
 MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, etc.) read and safe-write access to a Clover merchant's sales, inventory, orders, and customers.
 
+[![PyPI](https://img.shields.io/pypi/v/clover-mcp)](https://pypi.org/project/clover-mcp/)
+[![Python versions](https://img.shields.io/pypi/pyversions/clover-mcp)](https://pypi.org/project/clover-mcp/)
+[![License: MIT](https://img.shields.io/pypi/l/clover-mcp)](LICENSE)
+
 <!-- mcp-name: io.github.SBolivarLoL/clover-mcp -->
 
 > **Status:** v0.7.0 — 47 tools, 6 prompts, both auth modes, 286 tests. Runs locally (stdio, single merchant) or remotely over HTTP with OAuth, single- or multi-tenant (see [docs/DEPLOY.md](docs/DEPLOY.md)). Endpoint contracts are sandbox-verified in [docs/endpoints.md](docs/endpoints.md).
@@ -47,11 +51,15 @@ Every tool carries MCP behaviour annotations (`readOnlyHint` / `destructiveHint`
 
 ## Install
 
+Published on [PyPI](https://pypi.org/project/clover-mcp/) — no clone needed:
+
 ```bash
-uvx clover-mcp   # coming soon after PyPI publish
+uvx clover-mcp          # run directly (recommended)
+# or
+pip install clover-mcp  # then launch with: clover-mcp
 ```
 
-Or from source:
+From source (for development):
 
 ```bash
 git clone https://github.com/SBolivarLoL/clover-mcp-server
