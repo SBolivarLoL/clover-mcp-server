@@ -118,6 +118,32 @@ async def test_refresh_dedup_skips_when_store_already_newer(
     assert not route.called
 
 
+@pytest.mark.asyncio
+async def test_concurrent_refresh_spends_token_once(
+    tmp_path: Path, mock_http: respx.Router
+) -> None:
+    """Two refreshes racing on the same store must POST once — the loser reuses
+    the winner's token rather than spending the single-use refresh token again.
+    Guards the in-process lock and the cross-process file-lock re-read path."""
+    import asyncio
+
+    store_path = tmp_path / "tokens.json"
+    cfg = _oauth_config(store_path)
+    route = mock_http.post(_REFRESH_PATH).mock(
+        return_value=httpx.Response(
+            200, json={"access_token": "acc_new", "refresh_token": "rt_new"}
+        )
+    )
+
+    results = await asyncio.gather(
+        refresh_access_token(cfg, failed_token="acc_old"),
+        refresh_access_token(cfg, failed_token="acc_old"),
+    )
+
+    assert results == ["acc_new", "acc_new"]
+    assert route.call_count == 1
+
+
 # ── Client 401 → refresh → retry ──────────────────────────────────────────────
 
 

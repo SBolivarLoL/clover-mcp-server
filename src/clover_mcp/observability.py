@@ -22,6 +22,7 @@ import sys
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -52,8 +53,13 @@ def latency_enabled() -> bool:
 
 
 def _emit(record: dict[str, Any]) -> None:
-    """Write one structured JSON line to stderr."""
-    print(json.dumps(record, default=str, separators=(",", ":")), file=sys.stderr)
+    """Write one structured JSON line to stderr, stamped with UTC wall-clock time.
+
+    `ts` leads every record so an audit trail answers "when" without depending on
+    the log collector's ingest time (which can lag or reorder).
+    """
+    line = {"ts": datetime.now(UTC).isoformat(), **record}
+    print(json.dumps(line, default=str, separators=(",", ":")), file=sys.stderr)
 
 
 def audit(event: str, **fields: Any) -> None:
