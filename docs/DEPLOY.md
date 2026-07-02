@@ -174,6 +174,12 @@ file, so single-use rotation stays isolated per merchant. A flat file is fine
 for a handful of merchants; swap `MerchantStore` in `remote.py` for a database
 or secret-manager lookup when you outgrow it (only `.get()` is called).
 
+Multiple replicas may share one token store on a POSIX filesystem: each refresh
+takes an exclusive `flock` on the store and re-reads under the lock, so two
+replicas can't both spend the same single-use refresh token. (On Windows, or a
+filesystem without working `flock` such as some NFS setups, run a single instance
+per token store.)
+
 ## Verify after deploy
 
 ```bash

@@ -6,6 +6,24 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Production-readiness hardening — the P0 items from the readiness review.
+
+### Added
+- Audit lines now carry a UTC `ts`, and (multi-tenant) the resolved `tenant` key,
+  so the write trail records **who acted and when** — not just which merchant.
+
+### Changed
+- Each Clover client caps in-flight requests at 5 (a per-token `asyncio.Semaphore`)
+  to stay under Clover's ~5-concurrent-per-token limit during parallel reads and
+  90-day fan-outs.
+- CI enforces coverage — `pytest-cov` with `--cov-fail-under=85` (current 87%).
+
+### Fixed
+- **Cross-process token-refresh race** — the OAuth refresh now holds a POSIX
+  `flock` on the token store (re-reading under the lock), so replicas sharing one
+  store can't both spend a single-use refresh token. Windows (no `fcntl`) falls
+  back to the in-process lock.
+
 ## [0.7.0] — 2026-07-01
 Production observability (audit logging + optional OpenTelemetry tracing/latency)
 plus a published eval/benchmark, architecture diagrams, a runnable demo, and
