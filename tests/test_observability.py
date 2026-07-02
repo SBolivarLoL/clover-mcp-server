@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 import httpx
 import pytest
@@ -13,10 +14,18 @@ from clover_mcp.observability import audit, traced
 from tests.conftest import TEST_MERCHANT_ID
 
 
+def _pop_ts(rec: dict) -> None:
+    """Assert the record carries a valid UTC ISO-8601 `ts`, then drop it so the
+    remaining fields can be compared exactly."""
+    ts = rec.pop("ts")
+    assert datetime.fromisoformat(ts).utcoffset().total_seconds() == 0
+
+
 def test_audit_emits_structured_json(capsys: pytest.CaptureFixture[str], monkeypatch) -> None:
     monkeypatch.setenv("CLOVER_AUDIT_LOG", "true")
     audit("write", method="POST", path="/items", status=200, merchant="M1")
     rec = json.loads(capsys.readouterr().err.strip())
+    _pop_ts(rec)
     assert rec == {
         "audit": "write",
         "method": "POST",
@@ -77,13 +86,33 @@ async def test_client_audits_writes(
         json.loads(line) for line in capsys.readouterr().err.splitlines() if '"audit"' in line
     ]
     assert audits, "expected an audit line for the write"
-    assert audits[-1] == {
+    last = audits[-1]
+    _pop_ts(last)
+    assert last == {
         "audit": "write",
         "method": "POST",
         "path": "/items",
         "status": 200,
         "merchant": TEST_MERCHANT_ID,
     }
+
+
+@pytest.mark.asyncio
+async def test_client_audit_includes_tenant_when_set(
+    test_config, mock_http: respx.Router, capsys: pytest.CaptureFixture[str], monkeypatch
+) -> None:
+    """In multi-tenant mode the resolved tenant key is recorded on the write —
+    the audit trail answers "who", not just "which merchant"."""
+    monkeypatch.setenv("CLOVER_AUDIT_LOG", "true")
+    client = CloverClient(test_config, tenant="acme-co")
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/items"
+    mock_http.post(path).mock(return_value=httpx.Response(200, json={"id": "I1"}))
+    await client.post("/items", json={"name": "x", "price": 100})
+    await client.close()
+    audits = [
+        json.loads(line) for line in capsys.readouterr().err.splitlines() if '"audit"' in line
+    ]
+    assert audits[-1]["tenant"] == "acme-co"
 
 
 @pytest.mark.asyncio

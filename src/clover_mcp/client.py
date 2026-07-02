@@ -25,13 +25,22 @@ from clover_mcp.observability import audit, traced
 
 _USER_AGENT = f"clover-mcp/{__version__} (+https://github.com/SBolivarLoL/clover-mcp-server)"
 
+# Clover permits ~5 concurrent requests per access token. One client exists per
+# token (per tenant in multi-merchant mode), so a per-client semaphore keeps an
+# eager agent — parallel read tools, 90-day fan-outs — from tripping 429s.
+_MAX_CONCURRENT_REQUESTS = 5
+
 
 class CloverClient:
     """Async HTTP client for the Clover REST API."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, tenant: str | None = None) -> None:
         self._config = config
+        # Identity of the caller this client serves (multi-tenant key); recorded
+        # in write audit records so the trail answers "who", not just "which merchant".
+        self._tenant = tenant
         self._access_token = self._load_initial_token()
+        self._sem = asyncio.Semaphore(_MAX_CONCURRENT_REQUESTS)
         self._http = httpx.AsyncClient(
             base_url=config.base_url,
             timeout=30,
@@ -86,7 +95,8 @@ class CloverClient:
 
         # Trace the whole request (incl. retries) — a real OTel span if the operator
         # configured an exporter, otherwise a no-op with an optional latency line.
-        async with traced("clover.http", method=method, path=path):
+        # The semaphore bounds in-flight requests per token (incl. retry waits).
+        async with self._sem, traced("clover.http", method=method, path=path):
             resp = await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
 
             # 401 → refresh once (oauth_refresh only)
@@ -111,13 +121,15 @@ class CloverClient:
         # Audit every mutation attempt — including failures — with the final status.
         # No request bodies or secrets; path may carry resource ids (not sensitive).
         if is_write:
-            audit(
-                "write",
-                method=method,
-                path=path,
-                status=resp.status_code,
-                merchant=self._config.merchant_id,
-            )
+            fields: dict[str, Any] = {
+                "method": method,
+                "path": path,
+                "status": resp.status_code,
+                "merchant": self._config.merchant_id,
+            }
+            if self._tenant is not None:
+                fields["tenant"] = self._tenant
+            audit("write", **fields)
 
         raise_for_status(resp, context=context)
         return resp

@@ -166,7 +166,7 @@ def _get_client() -> CloverClient:
         key = request_tenant_key(config)
         client = _clients.get(key)
         if client is None:
-            client = CloverClient(tenant_config(config, _get_tenants(), key))
+            client = CloverClient(tenant_config(config, _get_tenants(), key), tenant=key)
             _clients[key] = client
         return client
 

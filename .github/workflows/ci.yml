@@ -42,4 +42,4 @@ jobs:
         run: uv run mypy src/clover_mcp/
 
       - name: Test (pytest)
-        run: uv run pytest tests/ -v --tb=short
+        run: uv run pytest tests/ -v --tb=short --cov=src/clover_mcp --cov-report=term-missing --cov-fail-under=85
