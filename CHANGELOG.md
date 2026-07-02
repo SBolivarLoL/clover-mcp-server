@@ -6,6 +6,11 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-07-01
+Production observability (audit logging + optional OpenTelemetry tracing/latency)
+plus a published eval/benchmark, architecture diagrams, a runnable demo, and
+enterprise-identity (SSO/SAML/SCIM/multi-tenant) integration docs.
+
 ### Added — observability
 - **Audit logging** — every write emits a structured JSON line to stderr
   (`method`, `path`, `status`, `merchant`; no bodies or secrets). On by default;
