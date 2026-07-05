@@ -20,7 +20,7 @@ import httpx
 from clover_mcp import __version__
 from clover_mcp.auth import TokenStore, refresh_access_token
 from clover_mcp.config import Config
-from clover_mcp.errors import raise_for_status
+from clover_mcp.errors import ReadOnlyError, raise_for_status
 from clover_mcp.observability import audit, note, traced
 
 _USER_AGENT = f"clover-mcp/{__version__} (+https://github.com/SBolivarLoL/clover-mcp-server)"
@@ -91,6 +91,15 @@ class CloverClient:
     ) -> httpx.Response:
         url = self._url(path)
         context = f"{method} {path}"
+
+        # Global read-only kill switch: refuse every write before any network call.
+        # Audited as a refusal so the trail shows the attempt was blocked, not lost.
+        if is_write and self._config.read_only:
+            audit("write_refused", method=method, path=path, reason="read_only")
+            raise ReadOnlyError(
+                f"Server is in read-only mode (CLOVER_READ_ONLY=true); refused {method} {path}. "
+                "No data was modified. Unset CLOVER_READ_ONLY to enable writes."
+            )
 
         # oauth_refresh may start with no access token (e.g. a tenant configured
         # with only a refresh token, or an ephemeral host with an empty store).
