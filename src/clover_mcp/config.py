@@ -72,6 +72,10 @@ class Config:
     # it and read another merchant's data. This must be set to true to opt in, after
     # verifying the gateway strips it (see docs/SECURITY.md). Fail-closed default.
     trust_identity_header: bool = False
+    # Global kill switch: when true every write tool is refused before any HTTP
+    # call. For cautious merchants, demos, and incident response. Enforced at the
+    # single choke point in client._send (is_write=True).
+    read_only: bool = False
     base_url: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -214,4 +218,5 @@ def load_config() -> Config:
         tenant_claim=optional("CLOVER_TENANT_CLAIM"),
         tenant_header=tenant_header,
         trust_identity_header=trust_identity_header,
+        read_only=truthy("CLOVER_READ_ONLY"),
     )
