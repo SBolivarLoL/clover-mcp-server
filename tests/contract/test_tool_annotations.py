@@ -18,6 +18,7 @@ READ_TOOLS = [
     "get_sales_summary",
     "list_payments",
     "list_refunds",
+    "list_credits",
     "list_orders",
     "get_order",
     "list_open_orders",
@@ -31,12 +32,15 @@ READ_TOOLS = [
     "list_modifiers",
     "list_item_groups",
     "list_taxes",
+    "list_discounts",
     "list_devices",
     "list_tenders",
     "get_merchant_properties",
     # Layer 1 reads — reference data + inventory depth
     "list_order_types",
     "list_opening_hours",
+    "list_tip_suggestions",
+    "get_default_service_charge",
     "list_cash_events",
     "list_attributes",
     "list_tags",
@@ -63,6 +67,12 @@ WRITE_TOOLS = [
     "create_order",
     "add_line_item",
     "update_customer",
+    # Roadmap-completion writes (2026-07-05 audit)
+    "apply_order_discount",
+    "update_item_name",
+    "create_modifier_group",
+    "create_modifier",
+    "create_tag",
 ]
 # Additive writes: destructiveHint=False (they create, never overwrite/delete)
 ADDITIVE_WRITES = [
@@ -71,13 +81,31 @@ ADDITIVE_WRITES = [
     "create_item",
     "create_order",
     "add_line_item",
+    "create_modifier_group",
+    "create_modifier",
+    "create_tag",
+]
+# Set-style writes: destructiveHint=True, idempotentHint=True (overwrite an
+# existing value — repeat calls with the same args are no-ops)
+SET_WRITES = [
+    "apply_order_discount",
+    "update_item_name",
 ]
 
 
 @pytest.mark.asyncio
 async def test_tool_inventory_is_complete() -> None:
-    """All 44 tools exist and every one is annotated."""
-    assert len(READ_TOOLS + WRITE_TOOLS) == 44
+    """READ_TOOLS + WRITE_TOOLS must exactly match every tool registered on the
+    live FastMCP instance — not a hardcoded count. If this fails after adding a
+    tool, add its name to READ_TOOLS or WRITE_TOOLS above (and classify it in
+    ADDITIVE_WRITES/SET_WRITES if it's a write) instead of bumping a number."""
+    registered = {t.name for t in await server.mcp.list_tools()}
+    listed = set(READ_TOOLS + WRITE_TOOLS)
+    missing_from_list = registered - listed
+    stale_in_list = listed - registered
+    assert not missing_from_list, f"registered but not classified here: {missing_from_list}"
+    assert not stale_in_list, f"classified here but no longer registered: {stale_in_list}"
+    assert len(registered) == 53
     for name in READ_TOOLS + WRITE_TOOLS:
         ann = (await server.mcp.get_tool(name)).annotations
         assert ann is not None, f"{name} has no annotations"
@@ -117,4 +145,14 @@ async def test_item_writes_are_destructive_and_idempotent(name: str) -> None:
     assert ann.readOnlyHint is False
     assert ann.destructiveHint is True  # overwrites existing value
     assert ann.idempotentHint is True  # absolute set — repeat calls are no-ops
+    assert ann.openWorldHint is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", SET_WRITES)
+async def test_set_writes_are_destructive_and_idempotent(name: str) -> None:
+    ann = (await server.mcp.get_tool(name)).annotations
+    assert ann.readOnlyHint is False
+    assert ann.destructiveHint is True  # overwrites existing value
+    assert ann.idempotentHint is True
     assert ann.openWorldHint is True

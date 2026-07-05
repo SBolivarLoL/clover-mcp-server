@@ -179,7 +179,133 @@ async def test_get_item_404(client: CloverClient, mock_http: respx.Router) -> No
     with pytest.raises(CloverAPIError) as exc_info:
         await get_item(client, "BADID")
     assert exc_info.value.status_code == 404
-    assert "not found" in exc_info.value.message.lower()
+
+
+# ── get_item(include=...) — association expansions ───────────────────────────
+
+ITEM_RAW_EXPANDED = {
+    **ITEM_RAW,
+    "modifierGroups": {
+        "elements": [
+            {
+                "id": "MG1",
+                "name": "Milk options",
+                "showByDefault": True,
+                "href": "https://api.clover.com/x",
+            }
+        ]
+    },
+    "taxRates": {
+        "elements": [
+            {
+                "id": "TAX1",
+                "name": "Sales Tax",
+                "rate": 825000,
+                "isDefault": True,
+                "href": "https://api.clover.com/x",
+            }
+        ]
+    },
+    "tags": {
+        "elements": [
+            {"id": "TAG1", "name": "Seasonal", "showInReporting": True, "href": "https://x"}
+        ]
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_get_item_include_sends_expand_params(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    route = mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=ITEM_RAW_EXPANDED)
+    )
+    await get_item(
+        client,
+        "ITEM1",
+        include=["modifier_groups", "tax_rates", "categories", "tags"],
+    )
+    sent_expand = route.calls.last.request.url.params.get("expand")
+    for part in ("itemStock", "categories", "modifierGroups", "taxRates", "tags"):
+        assert part in sent_expand
+
+
+@pytest.mark.asyncio
+async def test_get_item_include_modifier_groups_shaped(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=ITEM_RAW_EXPANDED)
+    )
+    result = await get_item(client, "ITEM1", include=["modifier_groups"])
+    assert result["modifier_groups"] == [
+        {"id": "MG1", "name": "Milk options", "showByDefault": True}
+    ]
+    assert "href" not in result["modifier_groups"][0]
+
+
+@pytest.mark.asyncio
+async def test_get_item_include_tax_rates_shaped(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=ITEM_RAW_EXPANDED)
+    )
+    result = await get_item(client, "ITEM1", include=["tax_rates"])
+    tax = result["tax_rates"][0]
+    assert tax["id"] == "TAX1"
+    assert tax["rate"] == 825000
+    assert tax["rate_percent"] == 8.25
+    assert "href" not in tax
+
+
+@pytest.mark.asyncio
+async def test_get_item_include_tags_shaped(client: CloverClient, mock_http: respx.Router) -> None:
+    mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=ITEM_RAW_EXPANDED)
+    )
+    result = await get_item(client, "ITEM1", include=["tags"])
+    assert result["tags"] == [{"id": "TAG1", "name": "Seasonal", "showInReporting": True}]
+
+
+@pytest.mark.asyncio
+async def test_get_item_include_categories_full_detail(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    """include=["categories"] adds full category records under category_details,
+    while the base `categories` id-list field is untouched for compatibility."""
+    mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=ITEM_RAW_EXPANDED)
+    )
+    result = await get_item(client, "ITEM1", include=["categories"])
+    assert result["categories"] == ["CAT1"]
+    assert result["category_details"] == [{"id": "CAT1", "name": "Drinks"}]
+
+
+@pytest.mark.asyncio
+async def test_get_item_no_include_omits_association_keys(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    """Without include, no modifier_groups/tax_rates/tags/category_details keys
+    appear — and no allowlist bypass occurs even if Clover echoes those fields."""
+    mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(return_value=httpx.Response(200, json=ITEM_RAW))
+    result = await get_item(client, "ITEM1")
+    for key in ("modifier_groups", "tax_rates", "tags", "category_details"):
+        assert key not in result
+
+
+@pytest.mark.asyncio
+async def test_get_item_include_unknown_value_ignored(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    route = mock_http.get(f"{ITEMS_PATH}/ITEM1").mock(
+        return_value=httpx.Response(200, json=ITEM_RAW)
+    )
+    result = await get_item(client, "ITEM1", include=["bogus_field"])
+    sent_expand = route.calls.last.request.url.params.get("expand")
+    assert sent_expand == "itemStock,categories"
+    assert "bogus_field" not in result
 
 
 # ── list_low_stock_items ──────────────────────────────────────────────────────

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from clover_mcp.client import CloverClient
 from clover_mcp.confirm import confirm_write, confirmation_required
-from clover_mcp.shaping import _shape_line_item, shape_order
+from clover_mcp.shaping import _shape_line_item, shape_order, shape_order_discount
 from clover_mcp.windowing import date_to_ms, split_window
 
 if TYPE_CHECKING:
@@ -205,3 +205,143 @@ async def add_line_item(
 
     raw = await client.post(path, json=body)
     return {"ok": True, "line_item": _shape_line_item(raw)}
+
+
+_DISCOUNT_AMOUNT_MAX = 100_000_000  # $1 000 000.00 in cents
+
+
+async def apply_order_discount(
+    client: CloverClient,
+    ctx: Context | None,
+    order_id: str,
+    name: str | None = None,
+    percentage: int | None = None,
+    amount_cents: int | None = None,
+    catalogue_discount_id: str | None = None,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Apply an order-level discount.
+
+    Exactly one discount source must be given:
+      - `percentage` (1–100, whole number), OR
+      - `amount_cents` (1–100_000_000, a POSITIVE number of cents), OR
+      - `catalogue_discount_id` (an id from list_discounts).
+
+    Clover's API requires the `amount` field in the POST body to be NEGATIVE —
+    this tool accepts a POSITIVE `amount_cents` and sends the negated value on
+    the wire, so the caller never has to think in negative money.
+
+    Catalogue path: Clover does NOT resolve `discount:{id}` server-side. This
+    tool fetches the catalogue discount first (GET /discounts) and sends its
+    name + percentage/amount inline alongside the `discount` reference. Fails
+    clearly if the catalogue discount has neither field set.
+
+    Pre-check: fetches the order (expand=lineItems,discounts) and previews the
+    current discounts + a CLIENT-COMPUTED line-item subtotal — Clover exposes no
+    computed order total, so the discount's effect on the total is never
+    server-computed and is not returned here.
+
+    Previews on dry_run, then asks for confirmation (MCP elicitation, or
+    confirm=True) before POSTing. Requires ORDERS_W.
+    """
+    if not order_id or not order_id.strip():
+        raise ValueError("order_id must not be empty")
+
+    sources = [percentage is not None, amount_cents is not None, catalogue_discount_id is not None]
+    if sum(sources) != 1:
+        raise ValueError(
+            "exactly one of percentage, amount_cents, or catalogue_discount_id must be given"
+        )
+
+    if percentage is not None and not (1 <= percentage <= 100):
+        return {
+            "ok": False,
+            "reason": "bounds_violation",
+            "message": f"percentage {percentage} is out of bounds (must be 1 – 100).",
+        }
+    if amount_cents is not None and not (1 <= amount_cents <= _DISCOUNT_AMOUNT_MAX):
+        return {
+            "ok": False,
+            "reason": "bounds_violation",
+            "message": (
+                f"amount_cents {amount_cents} is out of bounds (must be 1 – {_DISCOUNT_AMOUNT_MAX})."
+            ),
+        }
+
+    # Pre-check: fetch the order for a diff-style preview. Clover computes no
+    # order total server-side, so we sum lineItems[].price ourselves and say so.
+    order = await get_order(client, order_id)
+    subtotal_cents = sum(li.get("price", 0) for li in order.get("line_items", []))
+    current_discounts = order.get("discounts", [])
+
+    body: dict[str, Any] = {}
+    if catalogue_discount_id is not None:
+        catalogue_raw = await client.get("/discounts")
+        elements: list[dict[str, Any]] = catalogue_raw.get("elements", [])
+        match = next((d for d in elements if d.get("id") == catalogue_discount_id), None)
+        if match is None:
+            return {
+                "ok": False,
+                "reason": "not_found",
+                "message": f"catalogue_discount_id {catalogue_discount_id!r} not found in /discounts.",
+            }
+        cat_name = match.get("name")
+        cat_percentage = match.get("percentage")
+        cat_amount = match.get("amount")
+        if cat_percentage is None and cat_amount is None:
+            return {
+                "ok": False,
+                "reason": "invalid_catalogue_discount",
+                "message": (
+                    f"Catalogue discount {catalogue_discount_id!r} has neither "
+                    "percentage nor amount set — cannot apply it."
+                ),
+            }
+        body["discount"] = {"id": catalogue_discount_id}
+        if cat_name is not None:
+            body["name"] = cat_name
+        if cat_percentage is not None:
+            body["percentage"] = cat_percentage
+        else:
+            body["amount"] = cat_amount
+    elif percentage is not None:
+        if name:
+            body["name"] = name
+        body["percentage"] = percentage
+    else:
+        assert amount_cents is not None
+        if name:
+            body["name"] = name
+        # Clover 400s on a positive amount — negate the caller-facing positive value.
+        body["amount"] = -amount_cents
+
+    path = f"/orders/{order_id}/discounts"
+
+    preview = {
+        "current_discounts": current_discounts,
+        "line_item_subtotal_cents": subtotal_cents,
+        "note": (
+            "Clover exposes no computed order total — this subtotal is summed "
+            "client-side from line-item prices. The discount's effect on the "
+            "order total is not server-computed."
+        ),
+    }
+
+    if dry_run:
+        return {
+            "ok": True,
+            "dry_run": True,
+            "would_post_path": path,
+            "would_post_body": body,
+            "preview": preview,
+        }
+
+    approved, how = await confirm_write(
+        ctx, f"Apply discount to order {order_id}: {body}?", confirm=confirm
+    )
+    if not approved:
+        return confirmation_required(how)
+
+    raw = await client.post(path, json=body)
+    return {"ok": True, "discount": shape_order_discount(raw), "preview": preview}
