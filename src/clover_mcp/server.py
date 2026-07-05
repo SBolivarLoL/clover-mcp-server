@@ -216,6 +216,13 @@ async def _check_permissions() -> None:
             file=sys.stderr,
         )
 
+    if config.write_limit_count > 0:
+        print(
+            f"Write-velocity guard active: max {config.write_limit_count} writes per "
+            f"{config.write_limit_window_s}s per tenant (CLOVER_WRITE_LIMIT_COUNT).",
+            file=sys.stderr,
+        )
+
     # Multi-merchant has no single startup merchant — credentials and scopes are
     # resolved (and surfaced as 403s) per request instead.
     if config.multi_merchant:
