@@ -76,6 +76,12 @@ class Config:
     # call. For cautious merchants, demos, and incident response. Enforced at the
     # single choke point in client._send (is_write=True).
     read_only: bool = False
+    # Write-velocity guard: at most `write_limit_count` write-tool calls per
+    # `write_limit_window_s` seconds, per tenant. Stops an agent-gone-wrong from
+    # doing 30 price changes in a minute. 0 disables the guard. Enforced at the
+    # write choke point in client._send.
+    write_limit_count: int = 10
+    write_limit_window_s: int = 300
     base_url: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -219,4 +225,6 @@ def load_config() -> Config:
         tenant_header=tenant_header,
         trust_identity_header=trust_identity_header,
         read_only=truthy("CLOVER_READ_ONLY"),
+        write_limit_count=int(optional("CLOVER_WRITE_LIMIT_COUNT", "10") or "10"),
+        write_limit_window_s=int(optional("CLOVER_WRITE_LIMIT_WINDOW_S", "300") or "300"),
     )

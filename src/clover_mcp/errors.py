@@ -10,6 +10,11 @@ class ReadOnlyError(Exception):
     (CLOVER_READ_ONLY=true). Refused before any HTTP call — no data is modified."""
 
 
+class WriteVelocityError(Exception):
+    """Raised when a tenant exceeds the write-velocity cap (too many write-tool
+    calls in the window). Refused before any HTTP call — no data is modified."""
+
+
 class CloverAPIError(Exception):
     """Raised when the Clover API returns a non-2xx response."""
 
