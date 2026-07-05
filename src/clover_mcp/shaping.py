@@ -63,7 +63,28 @@ def shape_item(raw: dict[str, Any]) -> dict[str, Any]:
     # Include stock quantity if expanded
     if "itemStock" in raw and isinstance(raw["itemStock"], dict):
         out["stock_quantity"] = raw["itemStock"].get("quantity")
+    # Optional associations — present only when get_item(include=...) expanded them.
+    # Each is a {elements:[...]} container (sandbox-verified 2026-07-05); element
+    # shapes reuse the same shapers as the standalone list_* tools. `categories`
+    # above is always the flattened id list; `category_details` (opt-in) is the
+    # full shaped record so both stay available without a breaking-change collision.
+    if "modifierGroups" in raw:
+        out["modifier_groups"] = [
+            shape_modifier_group(g) for g in _elements_of(raw["modifierGroups"])
+        ]
+    if "taxRates" in raw:
+        out["tax_rates"] = [shape_tax(t) for t in _elements_of(raw["taxRates"])]
+    if "tags" in raw:
+        out["tags"] = [shape_tag(t) for t in _elements_of(raw["tags"])]
+    if "categoryDetails" in raw:
+        out["category_details"] = [shape_category(c) for c in _elements_of(raw["categoryDetails"])]
     return out
+
+
+def _elements_of(container: Any) -> list[dict[str, Any]]:
+    """Unwrap a Clover {elements:[...]} container (or pass through a bare list)."""
+    elements = container.get("elements", container) if isinstance(container, dict) else container
+    return [e for e in elements if isinstance(e, dict)] if isinstance(elements, list) else []
 
 
 def shape_order(raw: dict[str, Any]) -> dict[str, Any]:
@@ -228,6 +249,24 @@ def shape_refund(raw: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def shape_credit(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project a credit record (store-credit / account-credit adjustment).
+
+    Element shape is UNVERIFIED — the sandbox `/credits` endpoint returns 200
+    with an empty `{elements:[]}` container (same situation as list_item_groups
+    and list_discounts before their fields were confirmed). Projects only the
+    fields documented for the resource; refs are reduced to ids like every other
+    shaper. Revisit this allowlist once a live credit exists to audit."""
+    out = _pick(raw, "id", "amount", "createdTime")
+    if isinstance(raw.get("tender"), dict):
+        out["tender"] = raw["tender"].get("label") or raw["tender"].get("id")
+    if isinstance(raw.get("customer"), dict):
+        out["customer_id"] = raw["customer"].get("id")
+    if isinstance(raw.get("employee"), dict):
+        out["employee_id"] = raw["employee"].get("id")
+    return out
+
+
 def shape_tender(raw: dict[str, Any]) -> dict[str, Any]:
     """Project a tender type (payment method: cash, credit, custom, …)."""
     return _pick(
@@ -305,6 +344,14 @@ def shape_modifier_group(raw: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def shape_modifier(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project a single modifier (POST /modifier_groups/{id}/modifiers response)."""
+    out = _pick(raw, "id", "name", "price", "available")
+    if isinstance(raw.get("modifierGroup"), dict):
+        out["modifier_group_id"] = raw["modifierGroup"].get("id")
+    return out
+
+
 def shape_device(raw: dict[str, Any]) -> dict[str, Any]:
     return _pick(raw, "id", "name", "serial", "model", "productName", "deviceTypeName")
 
@@ -323,6 +370,21 @@ def shape_discount(raw: dict[str, Any]) -> dict[str, Any]:
     """Project a merchant-level discount (catalogue entry). `amount` is cents
     (a fixed discount), `percentage` is a whole-number percent — only one is set."""
     return _pick(raw, "id", "name", "amount", "percentage")
+
+
+def shape_order_discount(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project an order-level discount (POST /orders/{orderId}/discounts response).
+
+    `amount` is cents (negative — Clover requires the write to be negative; see
+    apply_order_discount). `percentage` is a whole-number percent — only one is
+    set. `disc_type` is `"DEFAULT"` when the discount was applied via a catalogue
+    reference (`discount:{id}`), absent for ad-hoc discounts."""
+    out = _pick(raw, "id", "name", "percentage", "amount")
+    if "discType" in raw:
+        out["disc_type"] = raw["discType"]
+    if isinstance(raw.get("discount"), dict):
+        out["discount_ref"] = raw["discount"].get("id")
+    return out
 
 
 def shape_tip_suggestion(raw: dict[str, Any]) -> dict[str, Any]:

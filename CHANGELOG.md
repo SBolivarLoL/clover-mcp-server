@@ -6,13 +6,81 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Production-readiness hardening — the P0 and P1 items from the readiness review.
+Production-readiness hardening — the P0 and P1 items from the readiness review —
+plus the roadmap-completion sprint: two expanded reads, five guarded writes, a
+live sandbox audit of the remaining open roadmap items, and the ROADMAP/README
+reconciliation that followed. 53 tools total (up from 47 in 0.7.0).
 
 ### Added
 - Audit lines now carry a UTC `ts`, and (multi-tenant) the resolved `tenant` key,
   so the write trail records **who acted and when** — not just which merchant.
 - **`GET /healthz`** — an unauthenticated liveness probe for self-hosted HTTP
   behind a load balancer (the `/mcp` path requires a token). Makes no Clover call.
+- **`get_item(item_id, include=[...])`** — opt-in association expansion:
+  `"modifier_groups"`, `"tax_rates"`, `"categories"` (full records, not just
+  ids), `"tags"`. All four verified sandbox-side 2026-07-05 to be acceptable
+  together. Covers the item↔modifier-group and item↔tax association reads that
+  were previously open on the roadmap, via the existing endpoint instead of new
+  standalone list tools.
+- **`list_credits`** (`PAYMENTS_R`) — merchant credits (store/account-credit
+  adjustments), standard paginated shape via `shape_credit`. Sandbox-verified
+  200 with an empty result set (no credits provisioned on the audit sandbox);
+  the element shape is therefore UNVERIFIED and shaped conservatively — flagged
+  in `docs/endpoints.md` to revisit once a live credit exists.
+- **`apply_order_discount`** (`ORDERS_W`, guarded write) — apply a percentage,
+  fixed-amount, or catalogue discount to an order. Dry-run + expected-current
+  pre-check (client-computed line-item subtotal, since Clover exposes no
+  computed order total) + elicitation before the POST. Safety notes: Clover
+  requires a **negative** `amount` on the wire for amount-based discounts — the
+  tool takes a positive `amount_cents` from the caller and negates it
+  internally; catalogue discounts are not resolved server-side, so the tool
+  fetches the catalogue discount's `name` + `percentage`/`amount` and sends
+  them inline alongside the `discount` reference.
+- **`update_item_name`** (`INVENTORY_W`, guarded write) — rename an inventory
+  item. Dry-run + `expected_current_name` pre-check + elicitation. Verified
+  sandbox-side that the underlying `POST` is a non-clobbering partial update
+  (other item fields survive the rename).
+- **`create_modifier_group`**, **`create_modifier`**, **`create_tag`**
+  (`INVENTORY_W`, guarded additive writes) — create a modifier group, a
+  modifier within a group, and a tag/label. Dry-run + elicitation; additive
+  only (`destructiveHint=False`), no pre-check needed since nothing existing is
+  overwritten.
+
+### Audited (docs/endpoints.md, 2026-07-05 live sandbox pass)
+- **Negative finding — voided line items have no read path.**
+  `GET /orders/{id}?expand=voidedLineItems` returns 200 but silently ignores the
+  expansion (the key never appears in the response body); the dedicated
+  `GET /orders/{id}/voided_line_items` returns 405. No tool surfaces voided line
+  items separately as a result.
+- **Negative finding — no time-card resource.** Both
+  `GET /merchants/{mId}/time_cards` and
+  `GET /merchants/{mId}/employees/{employeeId}/timecards` return 405 at every
+  level tried. Shifts remain Clover's only time-detail resource; `list_shifts`/
+  `list_active_shifts` already cover them, so no new tool was added.
+- **Correction — merchant-level `GET /shifts` does exist.** An earlier audit
+  note claimed there was no merchant-level shifts endpoint; the 2026-07-05 pass
+  found it returns 200 with the same shape as the per-employee endpoint (still
+  no embedded employee name). `list_shifts`/`list_active_shifts` deliberately
+  keep the existing per-employee-iteration implementation, since it already
+  enriches employee names from the iterated employee record.
+- **Void line item stays excluded.** Clover exposes only `DELETE` for this
+  resource; repo policy excludes deletes, and no POST/PUT alternative exists.
+- **Item↔modifier-group and tag↔item association writes stay excluded.** The
+  `POST` endpoints return `200 {}`, but the resulting association is never
+  observable via any read path (including the new `get_item(include=[...])`),
+  so the mandatory expected-state post-check can't be implemented.
+- Full binding decisions recorded in ROADMAP.md (reads-to-add and
+  writes-to-decide sections) and the corresponding rows in
+  `docs/endpoints.md`.
+
+### Reconciled
+- ROADMAP.md — every previously open checkbox affected by the 2026-07-05 audit
+  is now resolved (shipped, excluded, or no-op) or, for the handful that remain
+  externally gated (OAuth onboarding, webhook bridge, legal/compliance, IdP
+  module, Dockerfile/CI-CD), annotated with the reason and a pointer to where
+  it's tracked.
+- README.md and ROADMAP.md tool/test counts updated to match the working tree
+  (53 tools).
 
 ### Changed
 - Each Clover client caps in-flight requests at 5 (a per-token `asyncio.Semaphore`)

@@ -8,7 +8,7 @@ MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, 
 
 <!-- mcp-name: io.github.SBolivarLoL/clover-mcp -->
 
-> **Status:** v0.7.0 — 47 tools, 6 prompts, both auth modes, 286 tests. Runs locally (stdio, single merchant) or remotely over HTTP with OAuth, single- or multi-tenant (see [docs/DEPLOY.md](docs/DEPLOY.md)). Endpoint contracts are sandbox-verified in [docs/endpoints.md](docs/endpoints.md).
+> **Status:** v0.7.0 released; working tree (unreleased) — 53 tools, 6 prompts, both auth modes, 355 tests. Runs locally (stdio, single merchant) or remotely over HTTP with OAuth, single- or multi-tenant (see [docs/DEPLOY.md](docs/DEPLOY.md)). Endpoint contracts are sandbox-verified in [docs/endpoints.md](docs/endpoints.md).
 
 > ⚠️ **Independent project — not affiliated with, endorsed by, or sponsored by Clover Network, LLC or Fiserv, Inc.** "Clover" is a trademark of its respective owner and is used here only nominatively to describe interoperability. Provided **as is**, without warranty — see [Legal & disclaimer](#legal--disclaimer).
 
@@ -20,7 +20,7 @@ MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, 
 - Customer search and creation
 - Employee, shift, role, category, modifier, tax, tender, and device lookups; best-selling items
 - Pricing config lookups: discount catalogue, tip-suggestion presets, default service charge
-- Safe writes: update item prices, set stock quantities, create customers/items/categories/orders, add line items, update customers
+- Safe writes: update item prices, set stock quantities, create customers/items/categories/orders, add line items, update customers, rename items, apply order discounts, create modifier groups/modifiers/tags
 - AI tools (reason via your client's model — the server holds no LLM key): sales briefings, reorder suggestions, anomaly detection, category suggestions, customer-message drafts
 - Predefined prompt workflows: daily briefing, weekly sales report, inventory health check, end-of-day closeout, customer lookup, monthly tax summary
 
@@ -32,9 +32,9 @@ MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, 
 |---|---|---|
 | `get_merchant_info` / `get_merchant_properties` | read | profile + POS config (banking fields never returned) |
 | `get_sales_summary` | read | aggregated window (see [Sales summary semantics](#sales-summary-semantics)) |
-| `list_payments` / `list_refunds` / `list_tenders` | read | payments, refunds, tender types |
+| `list_payments` / `list_refunds` / `list_credits` / `list_tenders` | read | payments, refunds, credits, tender types |
 | `list_orders` / `get_order` / `list_open_orders` / `list_order_types` | read | order history + detail |
-| `list_items` / `get_item` / `list_low_stock_items` | read | inventory + stock |
+| `list_items` / `get_item` / `list_low_stock_items` | read | inventory + stock; `get_item(include=[...])` opts in to `modifier_groups`/`tax_rates`/`categories`/`tags` association detail |
 | `list_categories` / `list_modifiers` / `list_taxes` / `list_item_groups` / `list_attributes` / `list_tags` / `list_discounts` | read | catalog structure |
 | `list_tip_suggestions` / `get_default_service_charge` | read | tip presets + service-charge config |
 | `list_devices` / `list_opening_hours` / `list_cash_events` | read | terminals, hours, cash-drawer log |
@@ -45,7 +45,9 @@ MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, 
 | `summarize_sales` / `inventory_reorder_suggestions` / `detect_sales_anomalies` / `suggest_item_categories` / `draft_customer_message` | AI | reason via your client's model; read-only suggestions |
 | `create_customer` / `update_customer` | write | dup-check + `dry_run`; update confirms via elicitation |
 | `create_item` / `create_category` / `create_order` / `add_line_item` | write | guarded: `dry_run` + confirm before writing |
-| `set_item_price_cents` / `set_item_stock_quantity` | write | optimistic-lock pre-check, bounds, `dry_run` |
+| `set_item_price_cents` / `set_item_stock_quantity` / `update_item_name` | write | optimistic-lock pre-check, bounds, `dry_run` |
+| `apply_order_discount` | write | exactly one of `percentage` / `amount_cents` / `catalogue_discount_id`; negates positive `amount_cents` to Clover's required negative wire value; catalogue path resolves name+value client-side; `dry_run` preview includes a client-computed line-item subtotal |
+| `create_modifier_group` / `create_modifier` / `create_tag` | write | dup-guard (group/tag) or parent pre-check (modifier); guarded: `dry_run` + confirm before writing |
 
 Every tool carries MCP behaviour annotations (`readOnlyHint` / `destructiveHint` / `idempotentHint`) so clients can parallelize reads and prompt before writes.
 
@@ -144,13 +146,14 @@ Your token must have the following Clover permission scopes:
 |---|---|
 | `MERCHANT_R` | `get_merchant_info` |
 | `ORDERS_R` | `list_orders`, `get_order`, `list_open_orders` |
-| `PAYMENTS_R` | `list_payments`, `get_sales_summary` (payments + refunds) |
+| `PAYMENTS_R` | `list_payments`, `list_refunds`, `list_credits`, `get_sales_summary` (payments + refunds) |
 | `ORDERS_R` | …also `get_top_items` |
-| `INVENTORY_R` | `list_items`, `get_item`, `list_low_stock_items`, `list_categories`, `list_modifiers`, `list_taxes`, `list_discounts` |
-| `INVENTORY_W` | `set_item_price_cents`, `set_item_stock_quantity` |
+| `INVENTORY_R` | `list_items`, `get_item`, `list_low_stock_items`, `list_categories`, `list_modifiers`, `list_taxes`, `list_discounts`, `list_item_groups`, `list_attributes`, `list_tags` |
+| `INVENTORY_W` | `set_item_price_cents`, `set_item_stock_quantity`, `create_item`, `create_category`, `update_item_name`, `create_modifier_group`, `create_modifier`, `create_tag` |
+| `ORDERS_W` | `create_order`, `add_line_item`, `apply_order_discount` |
 | `CUSTOMERS_R` | `search_customers`, `get_customer` |
-| `CUSTOMERS_W` | `create_customer` |
-| `EMPLOYEES_R` | `list_employees`, `get_employee`, `list_shifts`, `list_active_shifts` (optional) |
+| `CUSTOMERS_W` | `create_customer`, `update_customer` |
+| `EMPLOYEES_R` | `list_employees`, `get_employee`, `list_shifts`, `list_active_shifts`, `list_roles` (optional) |
 | `MERCHANT_R` | …also `list_devices`, `list_tenders`, `list_order_types`, `list_opening_hours`, `list_cash_events`, `list_tip_suggestions`, `get_default_service_charge` |
 
 Read scopes (`*_R`) are probed at startup; the server **warns** about any missing ones (it no longer exits — a hosted server must still start) and the affected tools return a 403 when called. `EMPLOYEES_R` is optional. Write scopes (`*_W`) are **not** probed (a probe would mutate data) — a missing write scope surfaces as a 403 the first time you call that tool. Permission changes on a Clover app require the merchant to reinstall the app.

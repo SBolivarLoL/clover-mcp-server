@@ -1,8 +1,11 @@
-"""Tools: get_sales_summary, list_payments.
+"""Tools: get_sales_summary, list_payments, list_refunds, list_credits.
 
-Both tools use 90-day windowing so arbitrary date ranges work transparently.
-Payments are filtered to result=SUCCESS for counts; voids and refunds are
-reported separately per the plan's Sales Semantics spec.
+get_sales_summary/list_payments/list_refunds use 90-day windowing so arbitrary
+date ranges work transparently. Payments are filtered to result=SUCCESS for
+counts; voids and refunds are reported separately per the plan's Sales
+Semantics spec. list_credits is a simple paginated listing (no date window —
+mirrors list_item_groups/list_discounts). All require PAYMENTS_R except
+get_top_items (ORDERS_R, in this module for its aggregation logic).
 """
 
 from __future__ import annotations
@@ -13,13 +16,14 @@ from typing import TYPE_CHECKING, Any
 
 from clover_mcp.client import CloverClient
 from clover_mcp.formatting import format_money
-from clover_mcp.shaping import shape_payment, shape_refund
+from clover_mcp.shaping import shape_credit, shape_payment, shape_refund
 from clover_mcp.windowing import date_to_ms, split_window
 
 if TYPE_CHECKING:
     from fastmcp import Context
 
 _DEFAULT_LIMIT = 50
+_CREDITS_MAX = 1000
 
 
 async def _log(ctx: Context | None, message: str) -> None:
@@ -352,3 +356,22 @@ async def list_refunds(
                 break
 
     return results
+
+
+async def list_credits(client: CloverClient) -> dict[str, Any]:
+    """Return the merchant's credits (store/account-credit adjustments, up to 1000).
+
+    Sandbox-verified 2026-07-05: `GET /credits` returns 200 with a standard
+    paginated `{elements:[],href}` container; the sandbox has no credits
+    provisioned so the element shape is UNVERIFIED (same situation as
+    list_item_groups/list_discounts before them). Shaped conservatively via
+    shape_credit — revisit the allowlist once a live credit exists to audit.
+
+    Requires PAYMENTS_R.
+    """
+    credits_list: list[dict[str, Any]] = []
+    async for el in client.iterate("/credits", limit=100):
+        credits_list.append(shape_credit(el))
+        if len(credits_list) >= _CREDITS_MAX:
+            break
+    return {"credits": credits_list, "count": len(credits_list)}

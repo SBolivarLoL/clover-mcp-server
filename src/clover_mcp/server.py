@@ -39,6 +39,9 @@ from clover_mcp.tools.employees import list_roles as _list_roles
 from clover_mcp.tools.employees import list_shifts as _list_shifts
 from clover_mcp.tools.inventory import create_category as _create_category
 from clover_mcp.tools.inventory import create_item as _create_item
+from clover_mcp.tools.inventory import create_modifier as _create_modifier
+from clover_mcp.tools.inventory import create_modifier_group as _create_modifier_group
+from clover_mcp.tools.inventory import create_tag as _create_tag
 from clover_mcp.tools.inventory import get_item as _get_item
 from clover_mcp.tools.inventory import list_attributes as _list_attributes
 from clover_mcp.tools.inventory import list_categories as _list_categories
@@ -51,6 +54,7 @@ from clover_mcp.tools.inventory import list_tags as _list_tags
 from clover_mcp.tools.inventory import list_taxes as _list_taxes
 from clover_mcp.tools.inventory import set_item_price_cents as _set_item_price_cents
 from clover_mcp.tools.inventory import set_item_stock_quantity as _set_item_stock_quantity
+from clover_mcp.tools.inventory import update_item_name as _update_item_name
 from clover_mcp.tools.merchant import get_default_service_charge as _get_default_service_charge
 from clover_mcp.tools.merchant import get_merchant_info as _get_merchant_info
 from clover_mcp.tools.merchant import get_merchant_properties as _get_merchant_properties
@@ -61,12 +65,14 @@ from clover_mcp.tools.merchant import list_order_types as _list_order_types
 from clover_mcp.tools.merchant import list_tenders as _list_tenders
 from clover_mcp.tools.merchant import list_tip_suggestions as _list_tip_suggestions
 from clover_mcp.tools.orders import add_line_item as _add_line_item
+from clover_mcp.tools.orders import apply_order_discount as _apply_order_discount
 from clover_mcp.tools.orders import create_order as _create_order
 from clover_mcp.tools.orders import get_order as _get_order
 from clover_mcp.tools.orders import list_open_orders as _list_open_orders
 from clover_mcp.tools.orders import list_orders as _list_orders
 from clover_mcp.tools.reporting import get_sales_summary as _get_sales_summary
 from clover_mcp.tools.reporting import get_top_items as _get_top_items
+from clover_mcp.tools.reporting import list_credits as _list_credits
 from clover_mcp.tools.reporting import list_payments as _list_payments
 from clover_mcp.tools.reporting import list_refunds as _list_refunds
 
@@ -370,6 +376,16 @@ async def list_refunds(
 
 
 @mcp.tool(annotations=_READ)
+async def list_credits() -> dict[str, Any]:
+    """Return the merchant's credits (store/account-credit adjustments, up to 1000).
+
+    Element shape is unverified (sandbox has none provisioned) — shaped
+    conservatively. Requires PAYMENTS_R.
+    """
+    return await _list_credits(_get_client())
+
+
+@mcp.tool(annotations=_READ)
 async def list_orders(
     date_from: str | None = None,
     date_to: str | None = None,
@@ -423,9 +439,13 @@ async def list_items(
 
 
 @mcp.tool(annotations=_READ)
-async def get_item(item_id: str) -> dict[str, Any]:
-    """Return a single inventory item by ID, including stock quantity. Requires INVENTORY_R."""
-    return await _get_item(_get_client(), item_id)
+async def get_item(item_id: str, include: list[str] | None = None) -> dict[str, Any]:
+    """Return a single inventory item by ID, including stock quantity.
+
+    Pass include=["modifier_groups"], ["tax_rates"], ["categories"], and/or
+    ["tags"] to opt in to those association details. Requires INVENTORY_R.
+    """
+    return await _get_item(_get_client(), item_id, include=include)
 
 
 @mcp.tool(annotations=_READ)
@@ -849,3 +869,116 @@ async def update_customer(
         dry_run=dry_run,
         confirm=confirm,
     )
+
+
+@mcp.tool(annotations=_WRITE_SET)
+async def apply_order_discount(
+    ctx: Context,
+    order_id: str,
+    name: str | None = None,
+    percentage: int | None = None,
+    amount_cents: int | None = None,
+    catalogue_discount_id: str | None = None,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Apply an order-level discount.
+
+    Exactly one of percentage (1-100), amount_cents (1-100_000_000, positive —
+    Clover requires a negative amount on the wire, this tool negates it for you),
+    or catalogue_discount_id must be given. Catalogue discounts are resolved
+    client-side (name + percentage/amount fetched from list_discounts and sent
+    inline). Previews on dry_run (includes current discounts + a client-computed
+    line-item subtotal — Clover has no computed order total); confirms via MCP
+    elicitation or confirm=True before writing. Requires ORDERS_W.
+    """
+    return await _apply_order_discount(
+        _get_client(),
+        ctx,
+        order_id,
+        name=name,
+        percentage=percentage,
+        amount_cents=amount_cents,
+        catalogue_discount_id=catalogue_discount_id,
+        dry_run=dry_run,
+        confirm=confirm,
+    )
+
+
+@mcp.tool(annotations=_WRITE_SET)
+async def update_item_name(
+    ctx: Context,
+    item_id: str,
+    new_name: str,
+    expected_current_name: str,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Rename an inventory item (price/other fields preserved).
+
+    Optimistic lock: refuses unless the item's current name equals
+    expected_current_name. Bounds: non-empty, <= 127 characters. dry_run=True
+    previews the POST body (still performs one read) and never writes.
+    Requires INVENTORY_R and INVENTORY_W.
+    """
+    return await _update_item_name(
+        _get_client(),
+        ctx,
+        item_id,
+        new_name,
+        expected_current_name,
+        dry_run=dry_run,
+        confirm=confirm,
+    )
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def create_modifier_group(
+    ctx: Context, name: str, dry_run: bool = False, confirm: bool = False
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new modifier group (e.g. "Milk options").
+
+    Duplicate guard: refuses if a group with the same name (case-insensitive)
+    already exists. Previews on dry_run; confirms via MCP elicitation or
+    confirm=True before writing. Requires INVENTORY_W.
+    """
+    return await _create_modifier_group(_get_client(), ctx, name, dry_run=dry_run, confirm=confirm)
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def create_modifier(
+    ctx: Context,
+    modifier_group_id: str,
+    name: str,
+    price_cents: int,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new modifier within a modifier group.
+
+    Pre-check: verifies the modifier group exists (404 -> clear error). Bounds:
+    0 <= price_cents <= 100_000_000. Previews on dry_run; confirms via MCP
+    elicitation or confirm=True before writing. Requires INVENTORY_W.
+    """
+    return await _create_modifier(
+        _get_client(),
+        ctx,
+        modifier_group_id,
+        name,
+        price_cents,
+        dry_run=dry_run,
+        confirm=confirm,
+    )
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def create_tag(
+    ctx: Context, name: str, dry_run: bool = False, confirm: bool = False
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new tag/label used to group items.
+
+    Duplicate guard: refuses if a tag with the same name (case-insensitive)
+    already exists. Previews on dry_run; confirms via MCP elicitation or
+    confirm=True before writing. Requires INVENTORY_W.
+    """
+    return await _create_tag(_get_client(), ctx, name, dry_run=dry_run, confirm=confirm)

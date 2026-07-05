@@ -9,6 +9,7 @@ from clover_mcp.shaping import (
     shape_attribute,
     shape_cash_event,
     shape_category,
+    shape_credit,
     shape_customer,
     shape_device,
     shape_discount,
@@ -17,9 +18,11 @@ from clover_mcp.shaping import (
     shape_item_group,
     shape_merchant,
     shape_merchant_properties,
+    shape_modifier,
     shape_modifier_group,
     shape_opening_hours,
     shape_order,
+    shape_order_discount,
     shape_order_type,
     shape_payment,
     shape_refund,
@@ -238,6 +241,85 @@ def test_merchant_properties_drops_banking_fields() -> None:
     assert "abaAccountNumber" not in out
     assert "ddaAccountNumber" not in out
     assert "merchantRef" not in out
+
+
+def test_credit_strips_refs_keeps_amount() -> None:
+    out = shape_credit(
+        {
+            "id": "CR1",
+            "amount": 1200,
+            "createdTime": 1700000500000,
+            "tender": {"id": "CREDIT", "label": "Store Credit", "href": "https://x"},
+            "customer": {"id": "CUST1", "cards": {"elements": [{"token": "tok_secret"}]}},
+            "employee": {"id": "EMP1", "href": "https://x"},
+            "href": "https://api.clover.com/v3/merchants/M1/credits/CR1",
+        }
+    )
+    _assert_no_banned(out)
+    assert out["amount"] == 1200
+    assert out["customer_id"] == "CUST1"
+    assert out["employee_id"] == "EMP1"
+    assert out["tender"] == "Store Credit"
+    assert "cards" not in out
+    assert "customer" not in out
+
+
+def test_item_association_expansions_strip_hrefs() -> None:
+    """get_item(include=...) expansions (modifierGroups, taxRates, tags,
+    categoryDetails) must project through the same shapers as their standalone
+    list_* tools — no href leak, no raw passthrough."""
+    raw = {
+        "id": "I1",
+        "name": "Latte",
+        "price": 500,
+        "modifierGroups": {"elements": [{"id": "MG1", "name": "Milk", "href": "https://x"}]},
+        "taxRates": {
+            "elements": [{"id": "TAX1", "name": "Sales Tax", "rate": 825000, "href": "https://x"}]
+        },
+        "tags": {"elements": [{"id": "TAG1", "name": "Seasonal", "href": "https://x"}]},
+        "categoryDetails": {"elements": [{"id": "CAT1", "name": "Drinks", "href": "https://x"}]},
+    }
+    out = shape_item(raw)
+    _assert_no_banned(out)
+    assert out["modifier_groups"] == [{"id": "MG1", "name": "Milk"}]
+    assert out["tax_rates"][0]["id"] == "TAX1"
+    assert out["tax_rates"][0]["rate_percent"] == 8.25
+    assert out["tags"] == [{"id": "TAG1", "name": "Seasonal"}]
+    assert out["category_details"] == [{"id": "CAT1", "name": "Drinks"}]
+
+
+def test_order_discount_strips_href_keeps_disc_type_and_ref() -> None:
+    """apply_order_discount response shaper — catalogue-linked discount carries
+    discType=DEFAULT + a discount ref; no href leak."""
+    raw = {
+        "id": "D1",
+        "name": "Happy Hour",
+        "percentage": 10,
+        "discType": "DEFAULT",
+        "discount": {"id": "CATDISC1", "href": "https://x"},
+        "href": "https://api.clover.com/v3/merchants/M1/orders/O1/discounts/D1",
+    }
+    out = shape_order_discount(raw)
+    _assert_no_banned(out)
+    assert out["disc_type"] == "DEFAULT"
+    assert out["discount_ref"] == "CATDISC1"
+    assert out["percentage"] == 10
+
+
+def test_modifier_strips_href_keeps_group_ref() -> None:
+    raw = {
+        "id": "MOD1",
+        "name": "Oat milk",
+        "price": 75,
+        "available": True,
+        "deleted": False,
+        "modifierGroup": {"id": "MG1", "href": "https://x"},
+        "href": "https://api.clover.com/v3/merchants/M1/modifier_groups/MG1/modifiers/MOD1",
+    }
+    out = shape_modifier(raw)
+    _assert_no_banned(out)
+    assert out["modifier_group_id"] == "MG1"
+    assert out["price"] == 75
 
 
 def test_merchant_shaped_cleanly() -> None:
