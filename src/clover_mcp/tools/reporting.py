@@ -1,4 +1,5 @@
-"""Tools: get_sales_summary, list_payments, list_refunds, list_credits.
+"""Tools: get_sales_summary, list_payments, list_refunds, list_credits,
+get_sales_by_employee, get_tips_by_employee, get_sales_by_hour.
 
 get_sales_summary/list_payments/list_refunds use 90-day windowing so arbitrary
 date ranges work transparently. Payments are filtered to result=SUCCESS for
@@ -6,15 +7,22 @@ counts; voids and refunds are reported separately per the plan's Sales
 Semantics spec. list_credits is a simple paginated listing (no date window —
 mirrors list_item_groups/list_discounts). All require PAYMENTS_R except
 get_top_items (ORDERS_R, in this module for its aggregation logic).
+
+get_sales_by_employee/get_tips_by_employee/get_sales_by_hour are thin
+aggregators over the same SUCCESS-payments window used by get_sales_summary —
+they add grouping (by employee or by local hour) but reuse the same filter
+and windowing pattern.
 """
 
 from __future__ import annotations
 
 import contextlib
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from clover_mcp.client import CloverClient
+from clover_mcp.errors import CloverAPIError
 from clover_mcp.formatting import format_money
 from clover_mcp.shaping import project, shape_credit, shape_payment, shape_refund
 from clover_mcp.windowing import date_to_ms, split_window
@@ -359,6 +367,217 @@ async def list_refunds(
                 break
 
     return results
+
+
+async def _employee_names(client: CloverClient) -> tuple[dict[str, str | None], str | None]:
+    """Best-effort {employee_id: name} map. Degrades to an empty map (names
+    reported as None) with a note if EMPLOYEES_R hasn't been granted."""
+    from clover_mcp.tools.employees import list_employees
+
+    try:
+        body = await list_employees(client)
+    except CloverAPIError:
+        return {}, "employee names unavailable (EMPLOYEES_R not granted)"
+    names = {emp["id"]: emp.get("name") for emp in body["employees"]}
+    return names, None
+
+
+def _group_by_employee(
+    payments: list[dict[str, Any]], amount_key: str
+) -> dict[str, tuple[int, int]]:
+    """Group raw payments by employee.id, summing `amount_key` per group.
+
+    Returns {employee_id: (total_cents, payment_count)}; unattributed payments
+    are grouped under "unassigned".
+    """
+    groups: dict[str, list[int]] = {}
+    for raw in payments:
+        employee = raw.get("employee")
+        employee_id = employee.get("id") if isinstance(employee, dict) else None
+        key = employee_id or "unassigned"
+        entry = groups.setdefault(key, [0, 0])
+        entry[0] += raw.get(amount_key, 0)
+        entry[1] += 1
+    return {key: (total, count) for key, (total, count) in groups.items()}
+
+
+async def _collect_success_payments(
+    client: CloverClient, d_from: date, d_to: date
+) -> list[dict[str, Any]]:
+    """Collect raw result=SUCCESS payments across 90-day windowed chunks."""
+    payments: list[dict[str, Any]] = []
+    for chunk_start, chunk_end in split_window(d_from, d_to):
+        ts_from = date_to_ms(chunk_start, end_of_day=False)
+        ts_to = date_to_ms(chunk_end, end_of_day=True)
+        params: dict[str, Any] = {
+            "filter": [
+                f"createdTime>={ts_from}",
+                f"createdTime<={ts_to}",
+                "result=SUCCESS",
+            ],
+        }
+        async for raw in client.iterate("/payments", limit=100, **params):
+            payments.append(raw)
+    return payments
+
+
+async def get_sales_by_employee(
+    client: CloverClient,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """Return gross sales grouped by employee for the given date window.
+
+    Defaults to today (UTC); 90-day chunked. Only result=SUCCESS payments are
+    counted; payments with no employee attribution are grouped as "unassigned".
+    Employee names are best-effort (requires EMPLOYEES_R) — if unavailable,
+    only IDs are returned and a note explains why.
+
+    Requires PAYMENTS_R.
+    """
+    today = _today_utc()
+    d_from = _parse_date(date_from, "date_from") if date_from else today
+    d_to = _parse_date(date_to, "date_to") if date_to else today
+    if d_from > d_to:
+        raise ValueError(f"date_from ({d_from}) must be ≤ date_to ({d_to})")
+
+    currency = await client.merchant_currency()
+    timezone = await client.merchant_timezone()
+
+    payments = await _collect_success_payments(client, d_from, d_to)
+    grouped = _group_by_employee(payments, "amount")
+    names, note = await _employee_names(client)
+
+    ranked = sorted(grouped.items(), key=lambda kv: kv[1][0], reverse=True)
+    by_employee = [
+        {
+            "employee_id": employee_id,
+            "employee_name": names.get(employee_id),
+            "gross_sales": _money(total, currency),
+            "payment_count": count,
+        }
+        for employee_id, (total, count) in ranked
+    ]
+
+    result: dict[str, Any] = {
+        "window": {"from": d_from.isoformat(), "to": d_to.isoformat(), "timezone": timezone},
+        "currency": currency,
+        "by_employee": by_employee,
+        "payment_count": len(payments),
+    }
+    if note:
+        result["note"] = note
+    return result
+
+
+async def get_tips_by_employee(
+    client: CloverClient,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """Return a tip-out sheet: tips collected grouped by employee.
+
+    Defaults to today (UTC); 90-day chunked. Only result=SUCCESS payments are
+    counted; payments with no employee attribution are grouped as "unassigned".
+    Employee names are best-effort (requires EMPLOYEES_R) — if unavailable,
+    only IDs are returned and a note explains why.
+
+    Requires PAYMENTS_R.
+    """
+    today = _today_utc()
+    d_from = _parse_date(date_from, "date_from") if date_from else today
+    d_to = _parse_date(date_to, "date_to") if date_to else today
+    if d_from > d_to:
+        raise ValueError(f"date_from ({d_from}) must be ≤ date_to ({d_to})")
+
+    currency = await client.merchant_currency()
+    timezone = await client.merchant_timezone()
+
+    payments = await _collect_success_payments(client, d_from, d_to)
+    grouped = _group_by_employee(payments, "tipAmount")
+    names, note = await _employee_names(client)
+
+    ranked = sorted(grouped.items(), key=lambda kv: kv[1][0], reverse=True)
+    by_employee = [
+        {
+            "employee_id": employee_id,
+            "employee_name": names.get(employee_id),
+            "tips": _money(total, currency),
+            "payment_count": count,
+        }
+        for employee_id, (total, count) in ranked
+    ]
+    total_tips = sum(total for total, _count in grouped.values())
+
+    result: dict[str, Any] = {
+        "window": {"from": d_from.isoformat(), "to": d_to.isoformat(), "timezone": timezone},
+        "currency": currency,
+        "by_employee": by_employee,
+        "total_tips": _money(total_tips, currency),
+        "payment_count": len(payments),
+    }
+    if note:
+        result["note"] = note
+    return result
+
+
+async def get_sales_by_hour(
+    client: CloverClient,
+    date: str | None = None,
+) -> dict[str, Any]:
+    """Return gross sales bucketed by local hour-of-day for a single day.
+
+    Defaults to today (UTC). Only result=SUCCESS payments are counted. Hours
+    are bucketed in the merchant's local timezone; if the merchant timezone is
+    missing or invalid, buckets fall back to UTC and a note is added. Only
+    hours with at least one payment are included.
+
+    Requires PAYMENTS_R.
+    """
+    d = _parse_date(date, "date") if date else _today_utc()
+
+    currency = await client.merchant_currency()
+    tz_name = await client.merchant_timezone()
+
+    note: str | None = None
+    try:
+        tz = ZoneInfo(tz_name) if tz_name else ZoneInfo("UTC")
+        if not tz_name:
+            note = "merchant timezone unavailable — hour buckets are in UTC"
+    except (ZoneInfoNotFoundError, ValueError):
+        tz = ZoneInfo("UTC")
+        note = "merchant timezone unavailable — hour buckets are in UTC"
+
+    # Fetch a UTC window padded ±1 day: the local day for any timezone offset
+    # falls entirely inside [d-1, d+1] UTC. We then keep only payments whose
+    # LOCAL date is d, so evening-local sales (which land on the next UTC day)
+    # are counted and early-UTC sales from the prior local day are excluded.
+    payments = await _collect_success_payments(client, d - timedelta(days=1), d + timedelta(days=1))
+
+    buckets: dict[int, list[int]] = {}
+    for raw in payments:
+        created_ms = raw.get("createdTime", 0)
+        local_dt = datetime.fromtimestamp(created_ms / 1000, tz=tz)
+        if local_dt.date() != d:
+            continue
+        entry = buckets.setdefault(local_dt.hour, [0, 0])
+        entry[0] += raw.get("amount", 0)
+        entry[1] += 1
+
+    by_hour = [
+        {"hour": hour, "gross_sales": _money(total, currency), "payment_count": count}
+        for hour, (total, count) in sorted(buckets.items())
+    ]
+
+    result: dict[str, Any] = {
+        "date": d.isoformat(),
+        "timezone": tz_name if not note else "UTC",
+        "currency": currency,
+        "by_hour": by_hour,
+    }
+    if note:
+        result["note"] = note
+    return result
 
 
 async def list_credits(client: CloverClient) -> dict[str, Any]:
