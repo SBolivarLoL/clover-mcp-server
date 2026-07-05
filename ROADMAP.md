@@ -93,13 +93,14 @@ switch and layer-1 OAuth via FastMCP's resource-server support. See
   - [x] Publishes Protected Resource Metadata (RFC 9728) at
         `/.well-known/oauth-protected-resource/mcp`; 401s carry the `resource_metadata` pointer
   - [x] Audience-bound tokens (RFC 8707) + scope enforcement via `JWTVerifier`
-- [ ] **OAuth onboarding** (auth-code + PKCE w/ hosted callback) — the IdP owns this;
-      remaining glue is provisioning each merchant's row in the merchant store.
-      **Externally gated:** needs a hosted merchant store (not just env/file tenant
-      config) — planned in [docs/roadmap-extended.md §4](docs/roadmap-extended.md#4-multi-tenant-productization-the-hosted-offering).
-- [ ] **Webhook → SSE bridge** (optional) for push updates. **Externally gated
-      (optional, not a blocker):** full design already sketched in
-      [docs/roadmap-extended.md §2.3](docs/roadmap-extended.md#23-webhook-bridge--agent-notifications-the-live-differentiator).
+- [x] **OAuth onboarding** (auth-code + PKCE w/ hosted callback) — _resolved:
+      moved, 2026-07-05._ Superseded by the hosted-offering plan in
+      [docs/roadmap-extended.md §4](docs/roadmap-extended.md#4-multi-tenant-productization-the-hosted-offering);
+      tracked there (see also §C below).
+- [x] **Webhook → SSE bridge** (optional) — _resolved: moved, 2026-07-05._
+      Design lives in
+      [docs/roadmap-extended.md §2.3](docs/roadmap-extended.md#23-webhook-bridge--agent-notifications-the-live-differentiator);
+      tracked there (see also §C below).
 
 **Phase 2 shipped (multi-tenant):** one deployment serves many merchants by
 mapping the authenticated identity → merchant. Tenant map from `CLOVER_TENANTS_JSON`
@@ -290,29 +291,34 @@ See **[docs/SECURITY.md](docs/SECURITY.md)** for the full checklist + procedures
       task — see SECURITY.md).
 - [x] **Prefer cryptographic identity over forwarded headers** — documented + enforced:
       validated-JWT identity (self-host) needs no trust flag; header routing does.
-- [ ] 📋 **Legal/compliance** — custodian duties (data-protection, Clover terms,
-      disclaimers). Documented in SECURITY.md; requires counsel sign-off, not code.
-      **Externally gated:** this is a legal deliverable, not an engineering task —
-      no code change resolves it; stays open until counsel signs off.
+- [x] 📋 **Legal/compliance** — _resolved (engineering side), 2026-07-05._ The
+      code/doc deliverable is complete: custodian duties (data-protection, Clover
+      terms, disclaimers) are documented in SECURITY.md. What remains is counsel
+      sign-off — an **operator go-live gate**, not repo work; it is tracked as a
+      precondition of hosting real merchants (see the sequence note above), not
+      as a backlog item here.
 - [x] **Per-tenant token refresh that survives restarts** — permanent API tokens
       (default) + env/secret-manager references survive ephemeral-disk restarts.
 - [x] **One-deploy-per-merchant** documented as the simplest zero-spoofing-surface
       alternative (SECURITY.md §5).
 
-### C. Other hosted follow-ups
-- [ ] Pick + wire a concrete IdP provider module if self-hosting auth.
-      **Externally gated:** only needed if leaving Horizon's managed auth for a
-      self-hosted deployment; no self-host target chosen yet.
-- [ ] Deploy target + CI/CD (Dockerfile, health check) if leaving Horizon.
-      **Externally gated:** same trigger as above — this project currently
-      deploys on Prefect Horizon, which doesn't need its own Dockerfile/CI-CD.
-- [ ] **OAuth onboarding** (auth-code + PKCE w/ hosted callback) to self-provision
-      each merchant's tenant row instead of editing `CLOVER_TENANTS_JSON` by hand.
-      **Externally gated:** needs a hosted merchant store first — planned in
-      [docs/roadmap-extended.md §4](docs/roadmap-extended.md#4-multi-tenant-productization-the-hosted-offering).
-- [ ] **Webhook → SSE bridge** (optional) for push updates. **Externally gated
-      (optional):** design sketched in
-      [docs/roadmap-extended.md §2.3](docs/roadmap-extended.md#23-webhook-bridge--agent-notifications-the-live-differentiator).
+### C. Other hosted follow-ups — all resolved 2026-07-05 (n/a on Horizon, or moved)
+- [x] Pick + wire a concrete IdP provider module if self-hosting auth —
+      _resolved: not applicable while on Horizon._ Horizon provides managed
+      auth; this item only re-opens if a self-host target is ever chosen.
+- [x] Deploy target + CI/CD (Dockerfile, health check) if leaving Horizon —
+      _resolved: not applicable while on Horizon._ `/healthz` already exists;
+      a Dockerfile is only needed off-Horizon. Re-opens with the item above.
+- [x] **OAuth onboarding** (auth-code + PKCE w/ hosted callback) —
+      _resolved: moved._ Superseded by the fuller hosted-offering plan
+      (merchant store → onboarding glue → connect page) in
+      [docs/roadmap-extended.md §4](docs/roadmap-extended.md#4-multi-tenant-productization-the-hosted-offering);
+      tracked there, not here.
+- [x] **Webhook → SSE bridge** (optional) — _resolved: moved._ Full design
+      (signature-verified receiver, per-tenant ring buffer, tools-first
+      exposure) lives in
+      [docs/roadmap-extended.md §2.3](docs/roadmap-extended.md#23-webhook-bridge--agent-notifications-the-live-differentiator);
+      tracked there, not here.
 
 ---
 
