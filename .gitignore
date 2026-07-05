@@ -19,6 +19,7 @@ uv.lock
 *.json
 !docs/*.json
 !server.json
+!scripts/schema_budget.baseline.json
 
 # token store
 ~/.config/clover-mcp/

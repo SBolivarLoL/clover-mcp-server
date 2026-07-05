@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from clover_mcp.client import CloverClient
 from clover_mcp.confirm import confirm_write, confirmation_required
-from clover_mcp.shaping import shape_customer
+from clover_mcp.shaping import project, shape_customer
 
 if TYPE_CHECKING:
     from fastmcp import Context
@@ -27,6 +27,7 @@ async def search_customers(
     phone: str | None = None,
     email: str | None = None,
     limit: int = 50,
+    fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Search for customers by name, phone, or email.
 
@@ -35,7 +36,8 @@ async def search_customers(
     *email* matches against emailAddress (exact).
 
     Only one filter is applied at a time; precedence: phone > email > query.
-    Cards are never returned.
+    Cards are never returned. `fields` narrows each result to the named keys
+    (cannot widen past the allowlist).
 
     Requires CUSTOMERS_R permission.
     """
@@ -54,7 +56,7 @@ async def search_customers(
     body = await client.get("/customers", **params)
     elements: list[dict[str, Any]] = body.get("elements", [])
     return {
-        "customers": [shape_customer(el) for el in elements],
+        "customers": project([shape_customer(el) for el in elements], fields),
         "count": len(elements),
         "limit": limit,
     }
