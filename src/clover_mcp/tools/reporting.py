@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from clover_mcp.client import CloverClient
 from clover_mcp.formatting import format_money
-from clover_mcp.shaping import shape_credit, shape_payment, shape_refund
+from clover_mcp.shaping import project, shape_credit, shape_payment, shape_refund
 from clover_mcp.windowing import date_to_ms, split_window
 
 if TYPE_CHECKING:
@@ -265,6 +265,7 @@ async def list_payments(
     date_from: str | None = None,
     date_to: str | None = None,
     limit: int = _DEFAULT_LIMIT,
+    fields: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """List payments within an optional date window.
 
@@ -274,7 +275,9 @@ async def list_payments(
     returned; use get_sales_summary for void/refund counts.
 
     Allowlisted fields only — card transaction details are never included.
-    This tool does NOT support payment capture, refund, or void actions.
+    `fields` further narrows each result to the named keys (cannot widen past
+    the allowlist). This tool does NOT support payment capture, refund, or
+    void actions.
     """
     if limit < 1 or limit > 200:
         raise ValueError("limit must be between 1 and 200")
@@ -308,7 +311,7 @@ async def list_payments(
             if len(results) >= limit:
                 break
 
-    return results
+    return project(results, fields)
 
 
 async def list_refunds(

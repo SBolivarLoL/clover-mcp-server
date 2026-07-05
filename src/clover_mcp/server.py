@@ -358,13 +358,17 @@ async def list_payments(
     date_from: str | None = None,
     date_to: str | None = None,
     limit: int = 50,
+    fields: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """List payments within an optional date window (default: today, limit 50).
 
     Only result=SUCCESS payments. Card transaction details never included.
+    fields: optional list of field names to keep (narrows the response; cannot widen past the allowlist).
     This tool does NOT support payment capture, refund, or void actions.
     """
-    return await _list_payments(_get_client(), date_from=date_from, date_to=date_to, limit=limit)
+    return await _list_payments(
+        _get_client(), date_from=date_from, date_to=date_to, limit=limit, fields=fields
+    )
 
 
 @mcp.tool(annotations=_READ)
@@ -398,14 +402,16 @@ async def list_orders(
     date_to: str | None = None,
     state: str | None = None,
     limit: int = 50,
+    fields: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """List orders within an optional date window and/or state filter (default: today, limit 50).
 
     state: open | paid | refunded | partially_refunded (omit for all states).
     Customer card data is never included. This tool is read-only.
+    fields: optional list of field names to keep (narrows the response; cannot widen past the allowlist).
     """
     return await _list_orders(
-        _get_client(), date_from=date_from, date_to=date_to, state=state, limit=limit
+        _get_client(), date_from=date_from, date_to=date_to, state=state, limit=limit, fields=fields
     )
 
 
@@ -435,13 +441,20 @@ async def list_items(
     category_id: str | None = None,
     limit: int = 100,
     offset: int = 0,
+    fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Return a page of inventory items. Filter by name (query) or category (category_id).
 
     Requires INVENTORY_R.
+    fields: optional list of field names to keep (narrows the response; cannot widen past the allowlist).
     """
     return await _list_items(
-        _get_client(), query=query, category_id=category_id, limit=limit, offset=offset
+        _get_client(),
+        query=query,
+        category_id=category_id,
+        limit=limit,
+        offset=offset,
+        fields=fields,
     )
 
 
@@ -619,13 +632,15 @@ async def search_customers(
     phone: str | None = None,
     email: str | None = None,
     limit: int = 50,
+    fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Search customers by full name (query), phone, or email.
 
     Cards are never returned. Requires CUSTOMERS_R.
+    fields: optional list of field names to keep (narrows the response; cannot widen past the allowlist).
     """
     return await _search_customers(
-        _get_client(), query=query, phone=phone, email=email, limit=limit
+        _get_client(), query=query, phone=phone, email=email, limit=limit, fields=fields
     )
 
 
