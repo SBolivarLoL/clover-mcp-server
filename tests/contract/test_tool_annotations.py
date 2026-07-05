@@ -56,6 +56,10 @@ READ_TOOLS = [
     "inventory_reorder_suggestions",
     "detect_sales_anomalies",
     "draft_customer_message",
+    # Reporting depth — payment aggregations (roadmap-extended §2.2)
+    "get_sales_by_employee",
+    "get_tips_by_employee",
+    "get_sales_by_hour",
 ]
 WRITE_TOOLS = [
     "create_customer",
@@ -105,7 +109,7 @@ async def test_tool_inventory_is_complete() -> None:
     stale_in_list = listed - registered
     assert not missing_from_list, f"registered but not classified here: {missing_from_list}"
     assert not stale_in_list, f"classified here but no longer registered: {stale_in_list}"
-    assert len(registered) == 53
+    assert len(registered) == 56
     for name in READ_TOOLS + WRITE_TOOLS:
         ann = (await server.mcp.get_tool(name)).annotations
         assert ann is not None, f"{name} has no annotations"

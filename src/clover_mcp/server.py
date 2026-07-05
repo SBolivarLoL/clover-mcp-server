@@ -70,7 +70,10 @@ from clover_mcp.tools.orders import create_order as _create_order
 from clover_mcp.tools.orders import get_order as _get_order
 from clover_mcp.tools.orders import list_open_orders as _list_open_orders
 from clover_mcp.tools.orders import list_orders as _list_orders
+from clover_mcp.tools.reporting import get_sales_by_employee as _get_sales_by_employee
+from clover_mcp.tools.reporting import get_sales_by_hour as _get_sales_by_hour
 from clover_mcp.tools.reporting import get_sales_summary as _get_sales_summary
+from clover_mcp.tools.reporting import get_tips_by_employee as _get_tips_by_employee
 from clover_mcp.tools.reporting import get_top_items as _get_top_items
 from clover_mcp.tools.reporting import list_credits as _list_credits
 from clover_mcp.tools.reporting import list_payments as _list_payments
@@ -401,6 +404,42 @@ async def list_credits() -> dict[str, Any]:
     conservatively. Requires PAYMENTS_R.
     """
     return await _list_credits(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def get_sales_by_employee(
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """Return gross sales grouped by employee for a date window (default: today).
+
+    Requires PAYMENTS_R; employee name enrichment additionally requires
+    EMPLOYEES_R (degrades to IDs-only with a note if not granted).
+    """
+    return await _get_sales_by_employee(_get_client(), date_from=date_from, date_to=date_to)
+
+
+@mcp.tool(annotations=_READ)
+async def get_tips_by_employee(
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """Return a tip-out sheet: tips collected grouped by employee (default: today).
+
+    Requires PAYMENTS_R; employee name enrichment additionally requires
+    EMPLOYEES_R (degrades to IDs-only with a note if not granted).
+    """
+    return await _get_tips_by_employee(_get_client(), date_from=date_from, date_to=date_to)
+
+
+@mcp.tool(annotations=_READ)
+async def get_sales_by_hour(date: str | None = None) -> dict[str, Any]:
+    """Return gross sales bucketed by local hour-of-day for a single day (default: today).
+
+    Buckets use the merchant's local timezone, falling back to UTC with a note
+    if unavailable. Requires PAYMENTS_R.
+    """
+    return await _get_sales_by_hour(_get_client(), date=date)
 
 
 @mcp.tool(annotations=_READ)
