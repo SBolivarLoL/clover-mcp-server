@@ -12,6 +12,27 @@ about being *better than* baseline, not reaching it.
 
 ---
 
+## Progress (updated 2026-07-05)
+
+Items shipped from this document, newest first. `✅` = merged, `◑` = partially
+shipped (remainder noted inline at the section).
+
+| Item | Status | PR |
+|---|---|---|
+| §1.1 Schema-budget script | ✅ | #58 |
+| §1.3 Response ergonomics — `fields` param | ◑ (summary-first + row-cap envelope deferred to eval harness §1.5) | #60 |
+| §1.4 Actionable errors | ✅ | #59 |
+| §2.2 Reporting depth | ◑ (sales/tips-by-employee + sales-by-hour; discounts/voids, labor, `weekly_ops_review` deferred) | #63 |
+| §3.1 Read-only kill switch | ✅ | #57 |
+| §3.2 Write-velocity guard | ✅ | #61 |
+| §3.5 Prompt-injection posture | ✅ | #62 |
+
+Not yet started: §1.2, §1.5 (eval harness — needs API budget), §1.6, §2.1
+(order-lifecycle writes — blocked on the sandbox endpoint-audit gate), §2.3,
+§2.4, §3.3, §3.4, §3.6, §4, §5.
+
+---
+
 ## 1. Agent experience — what makes a "really good" MCP server now
 
 The 2025–26 consensus shifted: the bottleneck is no longer protocol compliance
@@ -19,7 +40,7 @@ The 2025–26 consensus shifted: the bottleneck is no longer protocol compliance
 schema bloat (tool definitions loaded per request) and response bloat (tool
 output flowing through context).
 
-### 1.1 Measure and cap our schema footprint — cheap, do first
+### 1.1 Measure and cap our schema footprint — cheap, do first — ✅ shipped (#58)
 
 47 tools ≈ nontrivial context tax before the agent does anything (GitHub's
 official server burns ~17.6k tokens on definitions alone). We don't know our
@@ -51,7 +72,13 @@ number.
 - Breaking change → do it in a 0.x minor with deprecation aliases for one
   release (old tool name forwards + logs a deprecation warning).
 
-### 1.3 Response ergonomics — `fields` + `compact` + hard caps
+### 1.3 Response ergonomics — `fields` + `compact` + hard caps — ◑ `fields` shipped (#60)
+
+> **Status:** the `fields` post-shape projection is live on `list_orders`,
+> `list_items`, `search_customers`, `list_payments` (intersected with the
+> allowlist — never widens). The row-cap envelope and summary-first `detail`
+> are **deferred** until the eval harness (§1.5) can settle them with data, per
+> this section's own "decide with data" guidance.
 
 Shaping already allowlists; the next level is letting the *agent* shrink
 responses further.
@@ -70,7 +97,7 @@ responses further.
   biggest response-bloat win for restaurant merchants with hundreds of daily
   orders.
 
-### 1.4 Actionable errors
+### 1.4 Actionable errors — ✅ shipped (#59)
 
 Audit `errors.py` output against the question "what should the agent do next?"
 Every error string should name the failing input and the remedy:
@@ -135,7 +162,12 @@ expected-current pre-check + elicitation):
   bounded, auditable write — unlike whole-order voids, keep those excluded.
 - `set_order_note` / `set_order_type` — trivial, same recipe.
 
-### 2.2 Reporting depth (reads; low risk, high daily value)
+### 2.2 Reporting depth (reads; low risk, high daily value) — ◑ 3 of 5 shipped (#63)
+
+> **Status:** `get_sales_by_employee`, `get_tips_by_employee`, and
+> `get_sales_by_hour` (local-day bucketing) are live. Still to do:
+> `get_discounts_and_voids_report`, `get_labor_summary` (hours-only), and the
+> `weekly_ops_review` prompt.
 
 These are aggregations over data we already fetch — no new scopes, mostly
 `reporting.py` work:
@@ -213,13 +245,13 @@ The P0/P1 list is done and the big MUSTs (no token pass-through, audience
 binding, fail-closed header routing, allowlist shaping) are in. What remains
 is mostly operational assurance and supply chain:
 
-### 3.1 Global read-only switch — tiny, do now
+### 3.1 Global read-only switch — tiny, do now — ✅ shipped (#57)
 
 `CLOVER_READ_ONLY=true` → every write tool returns a refusal before any HTTP.
 One check in the guarded-write path. Gives cautious merchants (and demos, and
 incident response) a one-flag kill switch. Pair with a startup log line.
 
-### 3.2 Write-velocity guard
+### 3.2 Write-velocity guard — ✅ shipped (#61)
 
 The rate limiter caps request rate; it doesn't distinguish an agent gone wrong
 doing 30 price changes in a minute. Add a per-tenant sliding-window cap on
@@ -244,7 +276,7 @@ cached with TTL. Only build the backend the first real deployment needs
 - `SECURITY.md` gains a vuln-report contact + supported-versions table (repo
   root SECURITY.md exists — check it covers this).
 
-### 3.5 Prompt-injection posture (document + one mitigation)
+### 3.5 Prompt-injection posture (document + one mitigation) — ✅ shipped (#62)
 
 Merchant data is attacker-influenced (customer names, order notes, item names
 can contain instructions — a customer literally named "Ignore previous
@@ -344,17 +376,17 @@ the MCP model).
 
 ## 7. Suggested sequencing
 
-| Order | Item | Size | Why first |
+| Order | Item | Size | Status |
 |---|---|---|---|
-| 1 | Read-only switch (§3.1) + schema budget script (§1.1) | XS | One-day wins, both de-risk everything after |
-| 2 | Eval harness (§1.5) | M | Every later decision cites it |
-| 3 | Order lifecycle writes (§2.1) + reporting depth (§2.2) | M | Completes the merchant workflow story |
-| 4 | Summary-first + fields param (§1.3) | S | Response bloat is the top agent complaint |
-| 5 | Write-velocity guard (§3.2) + injection posture (§3.5) | S | Pre-req for pushing writes harder in 3 |
-| 6 | Webhook bridge (§2.3) | M | Differentiator; needs http deployment maturity |
-| 7 | Merchant store + OAuth onboarding (§4) | L | The hosted product |
-| 8 | Multi-location rollup (§2.4) | M | Builds on 7's store; strongest commercial angle |
-| 9 | Tool consolidation (§1.2) | M | Only with eval evidence from 2 |
+| 1 | Read-only switch (§3.1) + schema budget script (§1.1) | XS | ✅ #57, #58 |
+| 2 | Eval harness (§1.5) | M | ⬜ not started (needs API budget) |
+| 3 | Order lifecycle writes (§2.1) + reporting depth (§2.2) | M | ◑ reporting depth #63; writes blocked on sandbox endpoint-audit gate |
+| 4 | Summary-first + fields param (§1.3) | S | ◑ `fields` #60; summary-first deferred to eval harness |
+| 5 | Write-velocity guard (§3.2) + injection posture (§3.5) | S | ✅ #61, #62 |
+| 6 | Webhook bridge (§2.3) | M | ⬜ needs http deployment maturity |
+| 7 | Merchant store + OAuth onboarding (§4) | L | ⬜ the hosted product |
+| 8 | Multi-location rollup (§2.4) | M | ⬜ builds on 7's store |
+| 9 | Tool consolidation (§1.2) | M | ⬜ only with eval evidence from 2 |
 
 ---
 
