@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from clover_mcp.client import CloverClient
 from clover_mcp.confirm import confirm_write, confirmation_required
-from clover_mcp.shaping import _shape_line_item, shape_order, shape_order_discount
+from clover_mcp.shaping import _shape_line_item, project, shape_order, shape_order_discount
 from clover_mcp.windowing import date_to_ms, split_window
 
 if TYPE_CHECKING:
@@ -44,6 +44,7 @@ async def list_orders(
     date_to: str | None = None,
     state: str | None = None,
     limit: int = _DEFAULT_LIMIT,
+    fields: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """List orders within an optional date window and/or state filter.
 
@@ -55,7 +56,8 @@ async def list_orders(
     Leave empty to return all states.
 
     Allowlisted projection is applied — customer card data is never included.
-    This tool is read-only and does NOT modify any order state.
+    `fields` further narrows each result to the named keys (cannot widen past
+    the allowlist). This tool is read-only and does NOT modify any order state.
     """
     if limit < 1 or limit > 200:
         raise ValueError("limit must be between 1 and 200")
@@ -93,7 +95,7 @@ async def list_orders(
             if len(results) >= limit:
                 break
 
-    return results
+    return project(results, fields)
 
 
 async def get_order(

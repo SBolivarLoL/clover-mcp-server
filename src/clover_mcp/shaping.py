@@ -16,6 +16,16 @@ def _pick(src: dict[str, Any], *keys: str) -> dict[str, Any]:
     return {k: src[k] for k in keys if k in src}
 
 
+def project(rows: list[dict[str, Any]], fields: list[str] | None) -> list[dict[str, Any]]:
+    """Narrow already-shaped rows to `fields` (order preserved). None/empty → rows
+    unchanged. Operates on shaped output only, so it can only drop keys, never add
+    or un-redact them — it is not a way around the allowlist."""
+    if not fields:
+        return rows
+    wanted = set(fields)
+    return [{k: v for k, v in row.items() if k in wanted} for row in rows]
+
+
 def shape_merchant(raw: dict[str, Any]) -> dict[str, Any]:
     out = _pick(
         raw,

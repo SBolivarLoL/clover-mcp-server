@@ -12,6 +12,7 @@ from clover_mcp.client import CloverClient
 from clover_mcp.confirm import confirm_write, confirmation_required
 from clover_mcp.errors import CloverAPIError
 from clover_mcp.shaping import (
+    project,
     shape_attribute,
     shape_category,
     shape_discount,
@@ -33,12 +34,16 @@ async def list_items(
     category_id: str | None = None,
     limit: int = 100,
     offset: int = 0,
+    fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Return a page of inventory items.
 
     Optionally filter by name (exact match, case-insensitive on Clover's side)
     via *query*, or by category via *category_id*.  Pagination is controlled by
     *limit* (max 100) and *offset*.
+
+    `fields` narrows each item to the named keys (cannot widen past the
+    allowlist).
 
     Requires INVENTORY_R permission.
     """
@@ -58,7 +63,7 @@ async def list_items(
     body = await client.get("/items", **params)
     elements: list[dict[str, Any]] = body.get("elements", [])
     return {
-        "items": [shape_item(el) for el in elements],
+        "items": project([shape_item(el) for el in elements], fields),
         "count": len(elements),
         "offset": offset,
         "limit": limit,
