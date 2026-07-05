@@ -209,6 +209,13 @@ async def _check_permissions() -> None:
         print(f"WARNING: could not load configuration at startup: {exc}", file=sys.stderr)
         return
 
+    if config.read_only:
+        print(
+            "clover-mcp is in READ-ONLY mode (CLOVER_READ_ONLY=true) — all write "
+            "tools will refuse before any Clover API call.",
+            file=sys.stderr,
+        )
+
     # Multi-merchant has no single startup merchant — credentials and scopes are
     # resolved (and surfaced as 403s) per request instead.
     if config.multi_merchant:

@@ -5,6 +5,11 @@ from __future__ import annotations
 import httpx
 
 
+class ReadOnlyError(Exception):
+    """Raised when a write is attempted while the server is in read-only mode
+    (CLOVER_READ_ONLY=true). Refused before any HTTP call — no data is modified."""
+
+
 class CloverAPIError(Exception):
     """Raised when the Clover API returns a non-2xx response."""
 
