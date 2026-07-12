@@ -8,7 +8,7 @@ MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, 
 
 <!-- mcp-name: io.github.SBolivarLoL/clover-mcp -->
 
-> **Status:** v0.7.0 released; working tree (unreleased) — 53 tools, 6 prompts, both auth modes, 355 tests. Runs locally (stdio, single merchant) or remotely over HTTP with OAuth, single- or multi-tenant (see [docs/DEPLOY.md](docs/DEPLOY.md)). Endpoint contracts are sandbox-verified in [docs/endpoints.md](docs/endpoints.md).
+> **Status:** v0.7.0 released; working tree (unreleased) — 56 tools, 6 prompts, both auth modes, 399 tests. Runs locally (stdio, single merchant) or remotely over HTTP with OAuth, single- or multi-tenant (see [docs/DEPLOY.md](docs/DEPLOY.md)). Endpoint contracts are sandbox-verified in [docs/endpoints.md](docs/endpoints.md).
 
 > ⚠️ **Independent project — not affiliated with, endorsed by, or sponsored by Clover Network, LLC or Fiserv, Inc.** "Clover" is a trademark of its respective owner and is used here only nominatively to describe interoperability. Provided **as is**, without warranty — see [Legal & disclaimer](#legal--disclaimer).
 
@@ -32,6 +32,7 @@ MCP server for the Clover POS REST API — gives AI assistants (Claude, Cursor, 
 |---|---|---|
 | `get_merchant_info` / `get_merchant_properties` | read | profile + POS config (banking fields never returned) |
 | `get_sales_summary` | read | aggregated window (see [Sales summary semantics](#sales-summary-semantics)) |
+| `get_sales_by_employee` / `get_tips_by_employee` / `get_sales_by_hour` | read | employee attribution, tip-out, and merchant-local daypart reporting (`PAYMENTS_R`; employee names are best-effort) |
 | `list_payments` / `list_refunds` / `list_credits` / `list_tenders` | read | payments, refunds, credits, tender types |
 | `list_orders` / `get_order` / `list_open_orders` / `list_order_types` | read | order history + detail |
 | `list_items` / `get_item` / `list_low_stock_items` | read | inventory + stock; `get_item(include=[...])` opts in to `modifier_groups`/`tax_rates`/`categories`/`tags` association detail |
@@ -91,6 +92,9 @@ Optional:
 | `CLOVER_REGION` | `na` | `na`, `eu`, or `la` |
 | `CLOVER_SANDBOX` | `false` | `true` to use the Clover sandbox |
 | `CLOVER_AUTH_MODE` | `token` | `token` or `oauth_refresh` |
+| `CLOVER_READ_ONLY` | `false` | Refuse every write before making a Clover request |
+| `CLOVER_WRITE_LIMIT_COUNT` | `10` | Maximum writes per safety window; `0` disables, negative values are rejected |
+| `CLOVER_WRITE_LIMIT_WINDOW_S` | `300` | Positive write-safety window in seconds |
 
 ### Auth modes
 
@@ -146,7 +150,7 @@ Your token must have the following Clover permission scopes:
 |---|---|
 | `MERCHANT_R` | `get_merchant_info` |
 | `ORDERS_R` | `list_orders`, `get_order`, `list_open_orders` |
-| `PAYMENTS_R` | `list_payments`, `list_refunds`, `list_credits`, `get_sales_summary` (payments + refunds) |
+| `PAYMENTS_R` | `list_payments`, `list_refunds`, `list_credits`, `get_sales_summary`, `get_sales_by_employee`, `get_tips_by_employee`, `get_sales_by_hour` |
 | `ORDERS_R` | …also `get_top_items` |
 | `INVENTORY_R` | `list_items`, `get_item`, `list_low_stock_items`, `list_categories`, `list_modifiers`, `list_taxes`, `list_discounts`, `list_item_groups`, `list_attributes`, `list_tags` |
 | `INVENTORY_W` | `set_item_price_cents`, `set_item_stock_quantity`, `create_item`, `create_category`, `update_item_name`, `create_modifier_group`, `create_modifier`, `create_tag` |
@@ -191,7 +195,8 @@ audit, and multi-tenant authorization fit: **[docs/enterprise-identity.md](docs/
 ```bash
 uv pip install -e ".[dev]"
 pytest
-ruff check src/
+ruff check src/ tests/ scripts/
+ruff format --check src/ tests/ scripts/
 mypy src/clover_mcp/
 ```
 

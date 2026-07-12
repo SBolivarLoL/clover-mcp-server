@@ -19,6 +19,9 @@ _CLOVER_VARS = [
     "CLOVER_OAUTH_CLIENT_ID",
     "CLOVER_OAUTH_CLIENT_SECRET",
     "CLOVER_TOKEN_STORE",
+    "CLOVER_HTTP_PORT",
+    "CLOVER_WRITE_LIMIT_COUNT",
+    "CLOVER_WRITE_LIMIT_WINDOW_S",
 ]
 
 
@@ -82,4 +85,24 @@ def test_oauth_refresh_requires_client_id(clean_env: pytest.MonkeyPatch, tmp_pat
     clean_env.setenv("CLOVER_TOKEN_STORE", str(store))
     clean_env.setenv("CLOVER_OAUTH_CLIENT_SECRET", "csec")
     with pytest.raises(RuntimeError, match="CLOVER_OAUTH_CLIENT_ID"):
+        load_config()
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("CLOVER_HTTP_PORT", "abc", "must be an integer"),
+        ("CLOVER_HTTP_PORT", "0", "between 1 and 65535"),
+        ("CLOVER_HTTP_PORT", "65536", "between 1 and 65535"),
+        ("CLOVER_WRITE_LIMIT_COUNT", "-1", "zero or greater"),
+        ("CLOVER_WRITE_LIMIT_WINDOW_S", "0", "greater than zero"),
+    ],
+)
+def test_numeric_settings_are_validated(
+    clean_env: pytest.MonkeyPatch, name: str, value: str, message: str
+) -> None:
+    clean_env.setenv("CLOVER_MERCHANT_ID", "M1")
+    clean_env.setenv("CLOVER_ACCESS_TOKEN", "tok")
+    clean_env.setenv(name, value)
+    with pytest.raises(RuntimeError, match=message):
         load_config()

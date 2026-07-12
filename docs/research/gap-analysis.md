@@ -1,5 +1,10 @@
 # Gap analysis — what clover-mcp should & can have
 
+> Historical v0.5.0 analysis from 2026-06-29. Status labels and tool counts below
+> capture that implementation pass and are not a current backlog. See
+> [ROADMAP.md](../../ROADMAP.md) and
+> [roadmap-extended.md](../roadmap-extended.md) for current status.
+
 Synthesises [mcp-best-practices.md](mcp-best-practices.md) (MCP spec/security) and
 [clover-api-surface.md](clover-api-surface.md) (Clover REST API) against
 [current-state.md](current-state.md) (what we ship today, v0.5.0).

@@ -23,7 +23,7 @@ flowchart TB
 
     subgraph Server["FastMCP server (server.py) — 4 capability layers"]
         direction LR
-        Tools["Tools<br/>34 reads · 8 guarded writes"]
+        Tools["Tools<br/>38 reads · 13 guarded writes"]
         AI["AI tools<br/>5 · ctx.sample"]
         Prompts["Prompts<br/>6 workflows"]
         Res["Resource<br/>clover://capabilities"]
@@ -45,8 +45,8 @@ flowchart TB
     CClient --> Obs["observability.py<br/>audit · OTel spans · latency"]
     CClient -->|HTTPS| Clover[("Clover REST API<br/>region / sandbox")]
 
-    Config["config.py — env · region→URL"] -. configures .-> Server
-    AuthLife["auth.py — token lifecycle (0600 store)"] -. tokens .-> CClient
+    Config["config.py — env · ranges · region→URL"] -. configures .-> Server
+    AuthLife["auth.py — token lifecycle<br/>atomic 0600 store · off-loop I/O"] -. tokens .-> CClient
     Confirm["confirm.py — elicitation guard"] -. gates writes .-> Tools
     Window["windowing.py · formatting.py"] -. dates · money .-> Reporting
 ```
@@ -79,9 +79,9 @@ sequenceDiagram
 
 | Module | Concern | Must not |
 |---|---|---|
-| `config.py` | env, validation, region→URL | make HTTP calls |
-| `auth.py` | token lifecycle, refresh, 0600 store | business logic |
-| `remote.py` | OAuth resource server, multi-tenant routing | know about resources |
+| `config.py` | env, numeric/range validation, region→URL | make HTTP calls |
+| `auth.py` | token lifecycle, refresh, atomic 0600 store (file I/O off-loop) | business logic |
+| `remote.py` | OAuth resource server, validated fail-closed tenant routing | know about resources |
 | `client.py` | HTTP transport, retries, pagination | know Clover resources |
 | `shaping.py` | allowlist projection, PII removal | know tools or auth |
 | `windowing.py` | date chunking, ms conversion | know HTTP |
@@ -96,11 +96,19 @@ sequenceDiagram
 - **Allowlist, not denylist.** Shapers keep only named fields, so a new sensitive
   Clover field can't leak by default — enforced by a contract test and re-checked
   on live data by the [eval](eval.md).
-- **Writes are a privilege.** Every write has an explicit id, an expected-current
-  pre-check (optimistic lock), input bounds, `dry_run`, and confirmation; writes
-  are never retried on 5xx (non-idempotent). No payment capture / refund / delete.
+- **Writes are a privilege.** Every write has `dry_run`, input validation, and
+  confirmation. Updates add an explicit id and expected-current pre-check;
+  creates add duplicate/parent checks where applicable. Writes are never retried
+  on 5xx. No payment capture / refund / delete.
 - **Auth at the edge, tenant from the token.** In multi-tenant mode the merchant
   is derived from the validated identity, never a client-supplied value; header
   routing is fail-closed until verified (see [SECURITY.md](SECURITY.md)).
+- **Tenant configuration is validated at resolution time.** Tenant auth mode,
+  required credentials, region, and the JSON boolean `sandbox` value are checked
+  before a scoped Clover client is cached, preventing malformed tenant records
+  from silently changing environments or sending empty credentials.
+- **OAuth refresh does not block request scheduling on disk.** Cross-process
+  `flock` serializes single-use refresh-token rotation, while token-store reads
+  and atomic writes run in worker threads.
 - **Observability is opt-in and free when off.** OTel spans only when an exporter
   is configured; audit/latency are structured stderr lines.

@@ -120,7 +120,7 @@ async def refresh_access_token(config: Config, failed_token: str) -> str:
         store = TokenStore(config.token_store)
 
         # In-process fast path: another coroutine here already refreshed.
-        current = store.load()
+        current = await asyncio.to_thread(store.load)
         stored_access = current.get("access_token")
         if stored_access and stored_access != failed_token:
             return stored_access
@@ -129,7 +129,7 @@ async def refresh_access_token(config: Config, failed_token: str) -> str:
             # Re-read under the cross-process lock: another PROCESS may have
             # refreshed while we waited for the file lock. Same dedup check as
             # above, now covering replicas that share this token store.
-            current = store.load()
+            current = await asyncio.to_thread(store.load)
             stored_access = current.get("access_token")
             if stored_access and stored_access != failed_token:
                 return stored_access
@@ -157,5 +157,7 @@ async def refresh_access_token(config: Config, failed_token: str) -> str:
             new_access = str(body["access_token"])
             new_refresh = str(body.get("refresh_token", refresh_token))
 
-            store.save({"access_token": new_access, "refresh_token": new_refresh})
+            await asyncio.to_thread(
+                store.save, {"access_token": new_access, "refresh_token": new_refresh}
+            )
             return new_access

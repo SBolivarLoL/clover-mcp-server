@@ -9,9 +9,13 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 Production-readiness hardening — the P0 and P1 items from the readiness review —
 plus the roadmap-completion sprint: two expanded reads, five guarded writes, a
 live sandbox audit of the remaining open roadmap items, and the ROADMAP/README
-reconciliation that followed. 53 tools total (up from 47 in 0.7.0).
+reconciliation that followed. 56 tools total (up from 47 in 0.7.0).
 
 ### Added
+- **`get_sales_by_employee`**, **`get_tips_by_employee`**, and
+  **`get_sales_by_hour`** (`PAYMENTS_R`) — sales attribution, tip-out, and
+  merchant-local daypart reporting. Employee names are enriched when
+  `EMPLOYEES_R` is available and degrade cleanly to IDs otherwise.
 - Audit lines now carry a UTC `ts`, and (multi-tenant) the resolved `tenant` key,
   so the write trail records **who acted and when** — not just which merchant.
 - **`GET /healthz`** — an unauthenticated liveness probe for self-hosted HTTP
@@ -80,9 +84,18 @@ reconciliation that followed. 53 tools total (up from 47 in 0.7.0).
   module, Dockerfile/CI-CD), annotated with the reason and a pointer to where
   it's tracked.
 - README.md and ROADMAP.md tool/test counts updated to match the working tree
-  (53 tools).
+  (56 tools, 399 tests).
 
 ### Changed
+- Tenant records now fail closed when `auth_mode`, credentials, region, or the
+  JSON `sandbox` value is invalid; quoted string booleans can no longer silently
+  select the wrong Clover environment.
+- `CLOVER_HTTP_PORT`, `CLOVER_WRITE_LIMIT_COUNT`, and
+  `CLOVER_WRITE_LIMIT_WINDOW_S` now produce aggregated configuration errors and
+  enforce safe ranges (port 1–65535, count ≥0, window >0).
+- OAuth refresh token-store reads and atomic writes run off the asyncio event
+  loop while retaining the cross-process single-use-token lock.
+- CI now lints and format-checks maintained scripts as well as source and tests.
 - Each Clover client caps in-flight requests at 5 (a per-token `asyncio.Semaphore`)
   to stay under Clover's ~5-concurrent-per-token limit during parallel reads and
   90-day fan-outs.
@@ -97,7 +110,7 @@ reconciliation that followed. 53 tools total (up from 47 in 0.7.0).
   no longer pulls real credentials into the environment; tests scrub `CLOVER_*`.
 - Pinned `fastmcp>=3.4,<4` — `uvx` resolves fresh per user, so an untested major
   can't brick installs overnight.
-- CI enforces coverage — `pytest-cov` with `--cov-fail-under=85` (current 87%).
+- CI enforces coverage — `pytest-cov` with `--cov-fail-under=85` (current 89%).
 
 ### Fixed
 - **Cross-process token-refresh race** — the OAuth refresh now holds a POSIX
