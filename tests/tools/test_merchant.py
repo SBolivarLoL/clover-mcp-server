@@ -8,7 +8,16 @@ import respx
 
 from clover_mcp.client import CloverClient
 from clover_mcp.errors import CloverAPIError
-from clover_mcp.tools.merchant import get_merchant_info
+from clover_mcp.tools.merchant import (
+    get_default_service_charge,
+    get_merchant_info,
+    get_merchant_properties,
+    list_cash_events,
+    list_opening_hours,
+    list_order_types,
+    list_tenders,
+    list_tip_suggestions,
+)
 from tests.conftest import TEST_MERCHANT_ID
 
 MERCHANT_PAYLOAD = {
@@ -63,3 +72,221 @@ async def test_get_merchant_info_403(client: CloverClient, mock_http: respx.Rout
 
     assert exc_info.value.status_code == 403
     assert "permission" in exc_info.value.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_list_tenders(client: CloverClient, mock_http: respx.Router) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/tenders"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                # Sandbox-verified element shape (2026-06-24)
+                "elements": [
+                    {
+                        "id": "T1",
+                        "label": "Cash",
+                        "labelKey": "com.clover.tender.cash",
+                        "enabled": True,
+                        "opensCashDrawer": True,
+                        "editable": False,
+                        "visible": True,
+                        "supportsCashDiscount": False,
+                        "href": "https://sandbox.dev.clover.com/v3/merchants/M1/tenders/T1",
+                    }
+                ]
+            },
+        )
+    )
+
+    result = await list_tenders(client)
+
+    assert result["count"] == 1
+    t = result["tenders"][0]
+    assert t["label"] == "Cash"
+    assert t["opensCashDrawer"] is True
+    assert t["supportsCashDiscount"] is False
+    assert "href" not in t  # allowlist drops href and everything else
+
+
+@pytest.mark.asyncio
+async def test_get_merchant_properties_drops_banking(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    """POS settings surface; banking/account numbers never do."""
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/properties"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "defaultCurrency": "USD",
+                "timezone": "America/Chicago",
+                "tipsEnabled": False,
+                "trackStock": False,
+                "supportPhone": "+1 555 0100",
+                "abaAccountNumber": "000000000000000",
+                "ddaAccountNumber": "***********3770",
+                "href": f"https://sandbox.dev.clover.com/v3/merchants/{TEST_MERCHANT_ID}/properties",
+            },
+        )
+    )
+
+    result = await get_merchant_properties(client)
+
+    assert result["defaultCurrency"] == "USD"
+    assert result["timezone"] == "America/Chicago"
+    assert result["tipsEnabled"] is False
+    assert "abaAccountNumber" not in result
+    assert "ddaAccountNumber" not in result
+    assert "href" not in result
+
+
+@pytest.mark.asyncio
+async def test_list_order_types(client: CloverClient, mock_http: respx.Router) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/order_types"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "elements": [
+                    {
+                        "id": "OT1",
+                        "label": "Dine In",
+                        "taxable": True,
+                        "isDefault": True,
+                        "href": "https://sandbox.dev.clover.com/x",
+                    }
+                ]
+            },
+        )
+    )
+    result = await list_order_types(client)
+    assert result["count"] == 1
+    assert result["order_types"][0]["label"] == "Dine In"
+    assert "href" not in result["order_types"][0]
+
+
+@pytest.mark.asyncio
+async def test_list_opening_hours(client: CloverClient, mock_http: respx.Router) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/opening_hours"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "elements": [
+                    {
+                        "id": "OH1",
+                        "name": "Default",
+                        "monday": {"elements": [{"start": "09:00", "end": "17:00"}]},
+                        "href": "https://sandbox.dev.clover.com/x",
+                    }
+                ]
+            },
+        )
+    )
+    result = await list_opening_hours(client)
+    assert result["count"] == 1
+    oh = result["opening_hours"][0]
+    assert oh["name"] == "Default"
+    assert oh["monday"] == [{"start": "09:00", "end": "17:00"}]
+    assert "href" not in oh
+
+
+@pytest.mark.asyncio
+async def test_list_cash_events(client: CloverClient, mock_http: respx.Router) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/cash_events"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "elements": [
+                    {
+                        "id": "CE1",
+                        "type": "PAID_IN",
+                        "amount": 2000,
+                        "note": "float",
+                        "timestamp": 1700000000000,
+                        "employee": {"id": "E1"},
+                        "href": "https://sandbox.dev.clover.com/x",
+                    }
+                ]
+            },
+        )
+    )
+    result = await list_cash_events(client)
+    assert result["count"] == 1
+    ce = result["cash_events"][0]
+    assert ce["amount"] == 2000
+    assert ce["employee_id"] == "E1"
+    assert "href" not in ce
+
+
+@pytest.mark.asyncio
+async def test_list_cash_events_rejects_bad_limit(client: CloverClient) -> None:
+    with pytest.raises(ValueError, match="limit"):
+        await list_cash_events(client, limit=0)
+
+
+@pytest.mark.asyncio
+async def test_list_tip_suggestions(client: CloverClient, mock_http: respx.Router) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/tip_suggestions"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                # Sandbox-verified element shape (2026-06-29): percentage-based presets
+                "elements": [
+                    {
+                        "id": "TS1",
+                        "percentage": 20,
+                        "isEnabled": True,
+                        "href": "https://sandbox.dev.clover.com/x",
+                    }
+                ]
+            },
+        )
+    )
+    result = await list_tip_suggestions(client)
+    assert result["count"] == 1
+    ts = result["tip_suggestions"][0]
+    assert ts["percentage"] == 20
+    assert ts["isEnabled"] is True
+    assert "href" not in ts
+
+
+@pytest.mark.asyncio
+async def test_get_default_service_charge(client: CloverClient, mock_http: respx.Router) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/default_service_charge"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(
+            200,
+            # Sandbox-verified single-object shape (2026-06-29)
+            json={
+                "id": "SC1",
+                "name": "Service Charge",
+                "enabled": False,
+                "percentage": 10,
+                "percentageDecimal": 100000,
+                "href": "https://sandbox.dev.clover.com/x",
+            },
+        )
+    )
+    result = await get_default_service_charge(client)
+    assert result["name"] == "Service Charge"
+    assert result["enabled"] is False
+    assert result["percentage"] == 10
+    assert result["percentageDecimal"] == 100000
+    assert "href" not in result
+
+
+@pytest.mark.asyncio
+async def test_get_default_service_charge_403(
+    client: CloverClient, mock_http: respx.Router
+) -> None:
+    path = f"/v3/merchants/{TEST_MERCHANT_ID}/default_service_charge"
+    mock_http.get(path).mock(
+        return_value=httpx.Response(403, json={"message": "Merchant not authorized"})
+    )
+    with pytest.raises(CloverAPIError) as exc_info:
+        await get_default_service_charge(client)
+    assert exc_info.value.status_code == 403

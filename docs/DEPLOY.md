@@ -79,11 +79,22 @@ to a JSON object keyed by that identity value, each entry holding the merchant's
 **permanent** token:
 ```
 CLOVER_TENANT_HEADER=x-forwarded-email
+CLOVER_TRUST_IDENTITY_HEADER=true
 CLOVER_TENANTS_JSON={"you@store.com":{"merchant_id":"ABC123","access_token":"<permanent>","sandbox":false,"region":"na"},"other@store.com":{"merchant_id":"XYZ789","access_token":"<permanent>"}}
 ```
 Redeploy. Each authenticated user now transparently gets *their* merchant's data;
 an unmapped user is refused (fail-closed). Re-run `whoami` to confirm
 `tenant_provisioned: true`.
+
+> ⚠️ **SECURITY — `CLOVER_TRUST_IDENTITY_HEADER` is mandatory for header routing.**
+> With `CLOVER_TENANT_HEADER` set but this flag unset, the server boots and `whoami`
+> works, but **every data tool fails closed** (no merchant data) and a startup warning
+> is logged. A forwarded header can be spoofed unless your gateway strips client-supplied
+> copies — **run the header-spoofing test in [docs/SECURITY.md](SECURITY.md) using
+> `whoami`, then set `CLOVER_TRUST_IDENTITY_HEADER=true`.** For stronger isolation,
+> reference each token via its own env var
+> (`{"...":{"merchant_id":"ABC123","access_token_env":"CLOVER_TOKEN_ABC123"}}`)
+> instead of inlining tokens, and inject them from a secret manager.
 
 > Don't set `CLOVER_TRANSPORT` or `CLOVER_AUTH_*` for this — Horizon owns auth.
 > A flat env blob is fine for a handful of merchants; for many, swap `load_tenants`
@@ -132,9 +143,14 @@ MCP client ──token──> clover-mcp (resource server) ──validates JWT�
 | `CLOVER_AUTH_AUDIENCE` | recommended | expected token audience |
 | `CLOVER_AUTH_SCOPES` | optional | required scopes, space/comma separated |
 | `CLOVER_MULTI_MERCHANT` | for SaaS | `true` to route by token claim |
-| `CLOVER_MERCHANT_CLAIM` | optional | claim holding the merchant id (default `clover_merchant_id`) |
+| `CLOVER_TENANT_CLAIM` | optional | validated JWT claim whose value keys the tenant map; empty defaults to email, then subject |
+| `CLOVER_TENANT_HEADER` | managed gateway only | gateway-injected identity header used instead of a JWT claim |
+| `CLOVER_TRUST_IDENTITY_HEADER` | required with tenant header | explicit opt-in after verifying the gateway strips spoofed client copies |
 | `CLOVER_MERCHANT_STORE` | multi-merchant | path to the per-merchant credentials JSON |
 | `CLOVER_HTTP_HOST` / `CLOVER_HTTP_PORT` / `CLOVER_HTTP_PATH` | optional | bind address / port / path (defaults `127.0.0.1` / `8000` / `/mcp`) |
+| `CLOVER_READ_ONLY` | optional | `true` refuses every write before any Clover API call (default `false`) |
+| `CLOVER_WRITE_LIMIT_COUNT` | optional | writes allowed per tenant/window (default `10`; `0` disables; negative values are rejected) |
+| `CLOVER_WRITE_LIMIT_WINDOW_S` | optional | positive window length in seconds (default `300`) |
 
 The server **refuses to start** in http mode unless `CLOVER_AUTH_JWKS_URI`,
 `CLOVER_AUTH_ISSUER`, and `CLOVER_PUBLIC_URL` are all set — a remote MCP server
@@ -142,11 +158,14 @@ must not run unauthenticated.
 
 ## Merchant store
 
-`CLOVER_MERCHANT_STORE` points at a JSON file keyed by Clover merchant id:
+`CLOVER_MERCHANT_STORE` points at a JSON file keyed by the authenticated tenant
+identity selected by `CLOVER_TENANT_CLAIM` (or email/subject fallback), or by
+the trusted gateway header when `CLOVER_TENANT_HEADER` is configured:
 
 ```json
 {
-  "MERCHANTID1": {
+  "owner@example.com": {
+    "merchant_id": "MERCHANTID1",
     "access_token": "...",
     "refresh_token": "...",
     "oauth_client_id": "...",
@@ -158,14 +177,32 @@ must not run unauthenticated.
 }
 ```
 
-Rotated refresh tokens are written to `tokens-<merchantId>.json` next to this
-file, so single-use rotation stays isolated per merchant. A flat file is fine
-for a handful of merchants; swap `MerchantStore` in `remote.py` for a database
-or secret-manager lookup when you outgrow it (only `.get()` is called).
+Tenant entries are validated before a client is created. `sandbox` must be a
+JSON boolean (`true`/`false`, not a quoted string); `auth_mode` must be `token`
+or `oauth_refresh`. Token mode requires `access_token`/`access_token_env`.
+Refresh mode requires `refresh_token`/`refresh_token_env` and
+`oauth_client_id`; its access token may initially be empty and will be
+bootstrapped from the refresh token. Invalid regions and credentials fail
+closed on the first request for that tenant.
+
+Rotated refresh tokens are written to a sanitized `tokens-<tenant-key>.json`
+next to this file, so single-use rotation stays isolated per tenant. A flat file is fine
+for a handful of merchants; replace `load_tenants()` in `remote.py` with a
+database or secret-manager lookup when you outgrow it (preserving the same
+identity-keyed entry shape).
+
+Multiple replicas may share one token store on a POSIX filesystem: each refresh
+takes an exclusive `flock` on the store and re-reads under the lock, so two
+replicas can't both spend the same single-use refresh token. (On Windows, or a
+filesystem without working `flock` such as some NFS setups, run a single instance
+per token store.)
 
 ## Verify after deploy
 
 ```bash
+# Liveness probe — unauthenticated, no Clover call. Point your load balancer here:
+curl https://YOUR_PUBLIC_URL/healthz          # → {"ok":true}
+
 # Protected Resource Metadata is public:
 curl https://YOUR_PUBLIC_URL/.well-known/oauth-protected-resource/mcp
 
@@ -174,6 +211,99 @@ curl -i -X POST https://YOUR_PUBLIC_URL/mcp \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
+
+## Path to production (sandbox → real Clover merchants)
+
+Everything above can run against the **sandbox** with zero cost and no business —
+that is the intended development/demo environment, and it's a complete, honest
+story for a proof-of-concept. Going to **real** Clover data is a separate axis
+from where you host the MCP server, and it has hard prerequisites.
+
+### The reality (why you can't just flip `CLOVER_SANDBOX=false`)
+
+- Sandbox and production are **completely walled off** — separate accounts, no
+  data migration, production devices provisioned only through a Clover reseller.
+- You **cannot fabricate a production merchant.** Production access is gated on
+  real identity verification (passport/ID + proof of address) and, for live
+  merchants, an underwritten Clover account.
+- **As the developer you don't own the merchant.** You go live by publishing an
+  **app that real merchants install** (OAuth); their data, their consent. This
+  server already implements that model (OAuth 2.1 resource server + per-tenant
+  routing — section B and the multi-tenant notes above).
+
+### Two production credential models
+
+| Model | Fits when | Auth | Clover requirements |
+|---|---|---|---|
+| **Own-merchant API token** | You run it on **your own** Clover business | `CLOVER_AUTH_MODE=token`, paste the token | A real Clover merchant account you control; generate a token in the Dashboard. No app review. |
+| **OAuth app** | You serve **other** merchants / want App Market distribution | `CLOVER_AUTH_MODE=oauth_refresh` (or hosted-platform auth) | A **production developer account** + a **production app** that passes Clover's **app approval**. |
+
+If you don't have a business, the OAuth-app model is your only path to real data.
+
+### Actionable checklist (OAuth-app path)
+
+- [ ] **1. Create a Global Developer account** — one login for both sandbox and
+      production, switchable from one dashboard. Free; the foundation for
+      everything else. ([global platform](https://docs.clover.com/dev/docs/global-developer-platform-get-started))
+- [ ] **2. Keep building/validating in sandbox** — you are here. Prove the app
+      works against test merchants before any approval. ([test merchants](https://docs.clover.com/dev/docs/use-test-merchants-dashboard))
+- [ ] **3. Get the production developer account approved** — submit individual/
+      corporate info, a valid ID, and proof of address. ([approval](https://docs.clover.com/dev/docs/approval), [developer accounts](https://docs.clover.com/dev/docs/developer-accounts))
+- [ ] **4. Create a production app** — in REST Configuration set the Default OAuth
+      Response to **Code**, set the OAuth redirect URL, and declare the permissions
+      below. ([create a production app](https://docs.clover.com/dev/docs/creating-a-production-app))
+- [ ] **5. Submit the app for approval** — Clover requires a **functional
+      walkthrough video**, an **in-line justification per requested permission**
+      (table below), and a **support phone + hours**. ([approval](https://docs.clover.com/dev/docs/approval))
+- [ ] **6. First merchant installs it** — OAuth issues *their* tokens; route by
+      the authenticated identity (multi-tenant) or run one deploy per merchant.
+- [ ] **7. Flip config to production** — `CLOVER_SANDBOX=false`, set the correct
+      `CLOVER_REGION` (`na`/`eu`/`la`), and supply the merchant's production
+      credentials. Verify with `get_merchant_info` returning the real business.
+
+> ⚠️ **Don't submit for approval prematurely.** Approval expects a real,
+> demonstrable app (the video + permission justifications are real work). Do
+> step 1 now; do steps 3–5 only when you have a polished app and ideally a first
+> merchant lined up — the gap to "real" is *one willing merchant + app approval*,
+> not a business of your own.
+
+### Permission justifications for this server (ready for app submission)
+
+Request **only** the scopes for the tools you ship (read-only deployments need no
+`*_W`). Each line is a paste-ready justification for the approval form:
+
+| Scope | Justification (what the app does with it) |
+|---|---|
+| `MERCHANT_R` | Read merchant profile, devices, tenders, order types, opening hours, cash events, tip presets, and service-charge config for reporting and setup display. |
+| `INVENTORY_R` | Read items, stock, categories, modifiers, taxes, tags, attributes, and discounts to answer inventory and catalog questions. |
+| `ORDERS_R` | Read orders, line items, and best-sellers for order history and sales analysis. |
+| `PAYMENTS_R` | Read payments and refunds to produce sales summaries and reconciliation. |
+| `CUSTOMERS_R` | Look up customers by name/phone/email (card data never read). |
+| `EMPLOYEES_R` *(optional)* | Read employees, roles, and shifts for staffing reports. |
+| `INVENTORY_W` | Update item price/stock and create items/categories — guarded by dry-run, confirmation, and optimistic-lock pre-checks. |
+| `CUSTOMERS_W` | Create/update customer records — guarded by duplicate-check and confirmation. |
+| `ORDERS_W` | Create orders and add line items — guarded by confirmation; never captures payment. |
+
+> This server **never** requests payment-capture/refund/void scopes and exposes
+> no deletes — call that out in the submission; narrow scopes speed up approval.
+
+> 📋 **Full submission kit** — app description, points of integration, a
+> scene-by-scene functional-video script, and a pre-submission checklist:
+> [docs/clover-app-submission.md](clover-app-submission.md).
+
+### Recommendation
+
+For now, **stay on sandbox** — the server is fully validated there and it's a
+legitimate demo (just label it as sandbox-backed). When you're ready to make it a
+real product, do checklist step 1 today (free, unblocks everything), and pursue
+steps 3–6 once you have a first merchant or a submission-ready app.
+
+Sources: [Clover environments](https://docs.clover.com/dev/docs/clover-environments) ·
+[Production developer accounts](https://docs.clover.com/dev/docs/developer-accounts) ·
+[Account & app approval](https://docs.clover.com/dev/docs/approval) ·
+[Create a production app](https://docs.clover.com/dev/docs/creating-a-production-app) ·
+[Test merchants](https://docs.clover.com/dev/docs/use-test-merchants-dashboard) ·
+[Global developer platform](https://docs.clover.com/dev/docs/global-developer-platform-get-started)
 
 ## Still local? Do nothing.
 

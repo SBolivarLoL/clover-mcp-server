@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import sys
 from typing import Any
 
 from clover_mcp.config import Config
@@ -45,6 +46,18 @@ def build_auth_provider(config: Config) -> Any | None:
             "CLOVER_TRANSPORT=http requires layer-1 OAuth (resource server). Missing: "
             + ", ".join(missing)
             + ". Refusing to serve an unauthenticated remote MCP server."
+        )
+
+    # SECURITY (RFC 8707, defense in depth): without an audience the verifier accepts
+    # any validly-signed token from the issuer — a token minted for a *different*
+    # resource served by the same IdP could be replayed here. Warn (don't fail: some
+    # single-app IdPs don't set aud) so the operator can bind it.
+    if not config.auth_audience:
+        print(
+            "WARNING: CLOVER_TRANSPORT=http without CLOVER_AUTH_AUDIENCE — bearer tokens are "
+            "not audience-bound (RFC 8707). Set CLOVER_AUTH_AUDIENCE to this server's resource "
+            "identifier so tokens issued for other resources can't be replayed here.",
+            file=sys.stderr,
         )
 
     # Imported lazily so stdio installs never pay for the auth stack.
@@ -127,6 +140,26 @@ def tenant_key(claims: dict[str, Any] | None, subject: str | None, claim_name: s
     return str(value)
 
 
+def _tenant_secret(entry: dict[str, Any], inline_key: str, env_key: str) -> str:
+    """Resolve a tenant credential, preferring a per-tenant secret reference.
+
+    SECURITY: an entry can carry the token inline ("access_token") OR name an env
+    var that holds it ("access_token_env"). The env reference lets each merchant's
+    token be injected as its own secret (k8s/Horizon secret, secret-manager mount)
+    instead of aggregating every merchant's plaintext token in one CLOVER_TENANTS_JSON
+    blob — per-tenant credential isolation. The env reference wins when both are set.
+    """
+    env_name = entry.get(env_key)
+    if env_name:
+        val = os.getenv(str(env_name), "")
+        if not val:
+            raise PermissionError(
+                f"Tenant credential env var {env_name!r} (from {env_key!r}) is unset/empty."
+            )
+        return val
+    return str(entry.get(inline_key, ""))
+
+
 def tenant_config(base: Config, tenants: dict[str, Any], key: str) -> Config:
     """Build a request-scoped single-merchant Config from the tenant entry."""
     entry = tenants.get(key)
@@ -134,23 +167,52 @@ def tenant_config(base: Config, tenants: dict[str, Any], key: str) -> Config:
         raise PermissionError(
             f"No Clover merchant provisioned for {key!r}. Add it to CLOVER_TENANTS_JSON."
         )
+    auth_mode = entry.get("auth_mode", "token")
+    if auth_mode not in ("token", "oauth_refresh"):
+        raise PermissionError(
+            f"Tenant {key!r} has invalid auth_mode {auth_mode!r}; expected 'token' or "
+            "'oauth_refresh'."
+        )
+    sandbox = entry.get("sandbox", base.sandbox)
+    if not isinstance(sandbox, bool):
+        raise PermissionError(f"Tenant {key!r} sandbox must be a JSON boolean.")
+    access_token = _tenant_secret(entry, "access_token", "access_token_env")
+    refresh_token = _tenant_secret(entry, "refresh_token", "refresh_token_env")
+    oauth_client_id = str(entry.get("oauth_client_id", base.oauth_client_id) or "")
+    if auth_mode == "token" and not access_token:
+        raise PermissionError(f"Tenant {key!r} requires access_token in token auth mode.")
+    missing_oauth = [
+        name
+        for name, value in (("refresh_token", refresh_token), ("oauth_client_id", oauth_client_id))
+        if not value
+    ]
+    if auth_mode == "oauth_refresh" and missing_oauth:
+        raise PermissionError(
+            f"Tenant {key!r} oauth_refresh configuration is missing: {', '.join(missing_oauth)}."
+        )
+
     # Isolate each tenant's token store so oauth_refresh rotation can't clobber or
     # leak between tenants (they'd otherwise share base.token_store).
     safe = "".join(c if c.isalnum() else "_" for c in key)
     token_store = base.merchant_store.parent / f"tokens-{safe}.json"
-    return dataclasses.replace(
-        base,
-        merchant_id=str(entry["merchant_id"]),
-        access_token=str(entry.get("access_token", "")),
-        auth_mode=str(entry.get("auth_mode", "token")),
-        refresh_token=str(entry.get("refresh_token", "")),
-        oauth_client_id=str(entry.get("oauth_client_id", base.oauth_client_id)),
-        oauth_client_secret=str(entry.get("oauth_client_secret", base.oauth_client_secret)),
-        region=str(entry.get("region", base.region)),
-        sandbox=bool(entry.get("sandbox", base.sandbox)),
-        token_store=token_store,
-        multi_merchant=False,  # the per-tenant config is single-merchant
-    )
+    try:
+        return dataclasses.replace(
+            base,
+            merchant_id=str(entry["merchant_id"]),
+            access_token=access_token,
+            auth_mode=auth_mode,
+            refresh_token=refresh_token,
+            oauth_client_id=oauth_client_id,
+            oauth_client_secret=str(
+                entry.get("oauth_client_secret", base.oauth_client_secret) or ""
+            ),
+            region=str(entry.get("region", base.region)),
+            sandbox=sandbox,
+            token_store=token_store,
+            multi_merchant=False,  # the per-tenant config is single-merchant
+        )
+    except ValueError as exc:
+        raise PermissionError(f"Tenant {key!r} configuration is invalid: {exc}") from exc
 
 
 # HTTP headers a gateway commonly forwards the authenticated identity in. Used
@@ -202,8 +264,21 @@ def request_tenant_key(config: Config) -> str:
     Two sources: an HTTP header (CLOVER_TENANT_HEADER — for gateway platforms like
     Horizon that authenticate at the edge and forward identity as a header), or a
     validated token claim (a custom IdP). Fails closed if neither yields anything.
+
+    A server-validated token claim is cryptographically stronger than a forwarded
+    header (which can be spoofed unless the gateway strips client copies). Header
+    routing therefore requires the explicit CLOVER_TRUST_IDENTITY_HEADER opt-in.
     """
     if config.tenant_header:
+        # SECURITY (defense in depth — also enforced at config load): never route by
+        # a forwarded header unless the operator has opted in after verifying the
+        # gateway strips client-supplied copies of it.
+        if not config.trust_identity_header:
+            raise PermissionError(
+                f"Refusing to route by the {config.tenant_header!r} header: "
+                "CLOVER_TRUST_IDENTITY_HEADER is not set. A forwarded header can be "
+                "spoofed unless the gateway strips client copies (see docs/SECURITY.md)."
+            )
         headers = _request_headers()
         value = headers.get(config.tenant_header) or headers.get(config.tenant_header.lower())
         if not value:
@@ -252,6 +327,17 @@ def auth_context(config: Config, tenants: dict[str, Any]) -> dict[str, Any]:
         "resolved_tenant_key": key,
         "tenant_provisioned": bool(key and key in tenants),
     }
+
+    # SECURITY: when routing by a forwarded header, surface whether it's trusted and
+    # how to verify the gateway strips client-supplied copies (header-spoofing test).
+    if config.tenant_header:
+        out["header_identity_trusted"] = config.trust_identity_header
+        out["spoofing_check"] = (
+            f"Header routing on {config.tenant_header!r}. From an EXTERNAL client, connect "
+            f"and send a forged '{config.tenant_header}: spoof@test.invalid' header, then call "
+            "whoami. If resolved_tenant_key comes back as 'spoof@test.invalid', the gateway is "
+            "NOT stripping the header — do NOT set CLOVER_TRUST_IDENTITY_HEADER. See docs/SECURITY.md."
+        )
 
     if token is not None:
         claims = getattr(token, "claims", None) or {}

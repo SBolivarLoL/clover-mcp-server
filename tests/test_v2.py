@@ -40,6 +40,7 @@ _VARS = [
     "CLOVER_TENANT_CLAIM",
     "CLOVER_TENANTS_JSON",
     "CLOVER_TENANT_HEADER",
+    "CLOVER_TRUST_IDENTITY_HEADER",
 ]
 
 
@@ -145,6 +146,34 @@ def test_http_with_full_idp_builds_provider() -> None:
     assert provider is not None
 
 
+def test_http_without_audience_warns(capsys: pytest.CaptureFixture[str]) -> None:
+    """RFC 8707 defense in depth: building http auth without an audience must warn
+    (but still build — some single-app IdPs don't set aud)."""
+    provider = build_auth_provider(
+        _base_config(
+            transport="http",
+            auth_jwks_uri="https://idp.example.com/.well-known/jwks.json",
+            auth_issuer="https://idp.example.com/",
+            public_url="https://mcp.example.com",
+        )
+    )
+    assert provider is not None
+    assert "CLOVER_AUTH_AUDIENCE" in capsys.readouterr().err
+
+
+def test_http_with_audience_does_not_warn(capsys: pytest.CaptureFixture[str]) -> None:
+    build_auth_provider(
+        _base_config(
+            transport="http",
+            auth_jwks_uri="https://idp.example.com/.well-known/jwks.json",
+            auth_issuer="https://idp.example.com/",
+            auth_audience="clover-mcp",
+            public_url="https://mcp.example.com",
+        )
+    )
+    assert "CLOVER_AUTH_AUDIENCE" not in capsys.readouterr().err
+
+
 @pytest.mark.asyncio
 async def test_create_server_fails_closed_without_idp(clean_env: pytest.MonkeyPatch) -> None:
     """The hosted factory must refuse to construct without an IdP, even if
@@ -238,6 +267,31 @@ def test_tenant_config_builds_scoped_single_merchant() -> None:
     assert scoped.token_store.name == "tokens-a_b_c.json"
 
 
+def test_tenant_config_rejects_string_sandbox_flag() -> None:
+    tenants = {"a@b.c": {"merchant_id": "M1", "access_token": "tok1", "sandbox": "false"}}
+    with pytest.raises(PermissionError, match="sandbox.*JSON boolean"):
+        tenant_config(_base_config(), tenants, "a@b.c")
+
+
+@pytest.mark.parametrize("auth_mode", ["invalid", "", None])
+def test_tenant_config_rejects_invalid_auth_mode(auth_mode: object) -> None:
+    tenants = {"a@b.c": {"merchant_id": "M1", "access_token": "tok1", "auth_mode": auth_mode}}
+    with pytest.raises(PermissionError, match="auth_mode"):
+        tenant_config(_base_config(), tenants, "a@b.c")
+
+
+def test_tenant_config_token_mode_requires_access_token() -> None:
+    tenants = {"a@b.c": {"merchant_id": "M1"}}
+    with pytest.raises(PermissionError, match="access_token"):
+        tenant_config(_base_config(), tenants, "a@b.c")
+
+
+def test_tenant_config_oauth_requires_refresh_token_and_client_id() -> None:
+    tenants = {"a@b.c": {"merchant_id": "M1", "auth_mode": "oauth_refresh"}}
+    with pytest.raises(PermissionError, match="refresh_token.*oauth_client_id"):
+        tenant_config(_base_config(oauth_client_id=""), tenants, "a@b.c")
+
+
 def test_tenant_config_unprovisioned_raises() -> None:
     with pytest.raises(PermissionError, match="No Clover merchant provisioned"):
         tenant_config(_base_config(), {}, "ghost@nowhere")
@@ -247,14 +301,65 @@ def test_request_tenant_key_from_header(monkeypatch: pytest.MonkeyPatch) -> None
     import clover_mcp.remote as remote
 
     monkeypatch.setattr(remote, "_request_headers", lambda: {"x-forwarded-email": "u@store.com"})
-    assert (
-        remote.request_tenant_key(_base_config(tenant_header="x-forwarded-email")) == "u@store.com"
-    )
+    cfg = _base_config(tenant_header="x-forwarded-email", trust_identity_header=True)
+    assert remote.request_tenant_key(cfg) == "u@store.com"
 
 
 def test_request_tenant_key_missing_header_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     import clover_mcp.remote as remote
 
     monkeypatch.setattr(remote, "_request_headers", lambda: {})
+    cfg = _base_config(tenant_header="x-forwarded-email", trust_identity_header=True)
     with pytest.raises(PermissionError, match="no 'x-forwarded-email' header"):
-        remote.request_tenant_key(_base_config(tenant_header="x-forwarded-email"))
+        remote.request_tenant_key(cfg)
+
+
+def test_request_tenant_key_untrusted_header_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SECURITY: header routing without the trust opt-in must refuse, even if the
+    header is present — never trust a spoofable header by default."""
+    import clover_mcp.remote as remote
+
+    monkeypatch.setattr(remote, "_request_headers", lambda: {"x-forwarded-email": "attacker@evil"})
+    cfg = _base_config(tenant_header="x-forwarded-email", trust_identity_header=False)
+    with pytest.raises(PermissionError, match="CLOVER_TRUST_IDENTITY_HEADER is not set"):
+        remote.request_tenant_key(cfg)
+
+
+def test_config_boots_with_untrusted_header(clean_env: pytest.MonkeyPatch) -> None:
+    """SECURITY: header routing without the trust opt-in must still BOOT (so the
+    whoami diagnostic works for the spoofing test) — it is NOT a hard startup
+    error. The fail-closed enforcement is at request time (see
+    test_request_tenant_key_untrusted_header_fails_closed)."""
+    clean_env.setenv("CLOVER_MULTI_MERCHANT", "true")
+    clean_env.setenv("CLOVER_TENANT_HEADER", "horizon-user-email")
+    cfg = load_config()  # must not raise
+    assert cfg.tenant_header == "horizon-user-email"
+    assert cfg.trust_identity_header is False
+
+
+def test_config_allows_header_routing_with_trust(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("CLOVER_MULTI_MERCHANT", "true")
+    clean_env.setenv("CLOVER_TENANT_HEADER", "horizon-user-email")
+    clean_env.setenv("CLOVER_TRUST_IDENTITY_HEADER", "true")
+    cfg = load_config()
+    assert cfg.tenant_header == "horizon-user-email"
+    assert cfg.trust_identity_header is True
+
+
+def test_tenant_config_reads_token_from_env_reference(
+    clean_env: pytest.MonkeyPatch,
+) -> None:
+    """Per-tenant credential isolation: an entry can reference its token via its own
+    env var instead of inlining it in the shared CLOVER_TENANTS_JSON blob."""
+    clean_env.setenv("CLOVER_TOKEN_FOR_M1", "secret-token-from-env")
+    tenants = {"a@b.c": {"merchant_id": "M1", "access_token_env": "CLOVER_TOKEN_FOR_M1"}}
+    scoped = tenant_config(_base_config(), tenants, "a@b.c")
+    assert scoped.access_token == "secret-token-from-env"
+
+
+def test_tenant_config_missing_env_reference_fails_closed(
+    clean_env: pytest.MonkeyPatch,
+) -> None:
+    tenants = {"a@b.c": {"merchant_id": "M1", "access_token_env": "CLOVER_TOKEN_MISSING"}}
+    with pytest.raises(PermissionError, match="unset/empty"):
+        tenant_config(_base_config(), tenants, "a@b.c")

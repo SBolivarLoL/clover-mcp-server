@@ -6,17 +6,33 @@ If a shaper accidentally passes through PII, these tests catch it.
 """
 
 from clover_mcp.shaping import (
+    shape_attribute,
+    shape_cash_event,
     shape_category,
+    shape_credit,
     shape_customer,
     shape_device,
+    shape_discount,
     shape_employee,
     shape_item,
+    shape_item_group,
     shape_merchant,
+    shape_merchant_properties,
+    shape_modifier,
     shape_modifier_group,
+    shape_opening_hours,
     shape_order,
+    shape_order_discount,
+    shape_order_type,
     shape_payment,
+    shape_refund,
+    shape_role,
+    shape_service_charge,
     shape_shift,
+    shape_tag,
     shape_tax,
+    shape_tender,
+    shape_tip_suggestion,
 )
 
 BANNED_KEYS = {"pin", "unhashedPin", "cards", "cardTransaction", "href", "token", "pan"}
@@ -135,8 +151,175 @@ def test_shift_strips_href() -> None:
 
 def test_v11_list_shapers_strip_href() -> None:
     dirty = {"id": "X1", "name": "thing", "href": "https://api.clover.com/x"}
-    for shaper in (shape_category, shape_modifier_group, shape_device, shape_tax):
+    for shaper in (
+        shape_category,
+        shape_modifier_group,
+        shape_device,
+        shape_tax,
+        shape_refund,
+        shape_tender,
+        shape_role,
+        shape_item_group,
+        shape_order_type,
+        shape_opening_hours,
+        shape_cash_event,
+        shape_attribute,
+        shape_tag,
+        shape_discount,
+        shape_tip_suggestion,
+        shape_service_charge,
+    ):
         _assert_no_banned(shaper(dict(dirty)))
+
+
+def test_order_surfaces_discounts_and_line_item_detail() -> None:
+    """Order detail sub-resources (discounts, line-item modifications) project
+    cleanly and the line item carries its catalog item_id — no href leak."""
+    raw = {
+        "id": "O9",
+        "state": "paid",
+        "total": 900,
+        "discounts": {"elements": [{"name": "10% off", "amount": -100, "percentage": 10}]},
+        "lineItems": {
+            "elements": [
+                {
+                    "id": "LI1",
+                    "name": "Latte",
+                    "price": 500,
+                    "item": {"id": "ITEM1", "href": "https://api.clover.com/x"},
+                    "modifications": {"elements": [{"name": "Oat milk", "amount": 50}]},
+                    "href": "https://api.clover.com/li",
+                }
+            ]
+        },
+    }
+    out = shape_order(raw)
+    _assert_no_banned(out)
+    assert out["discounts"][0]["name"] == "10% off"
+    li = out["line_items"][0]
+    assert li["item_id"] == "ITEM1"
+    assert li["modifications"][0]["name"] == "Oat milk"
+
+
+def test_cash_event_strips_refs_keeps_amount() -> None:
+    out = shape_cash_event(
+        {
+            "id": "CE1",
+            "type": "PAID_IN",
+            "amount": 2000,
+            "note": "float",
+            "timestamp": 1700000000000,
+            "employee": {"id": "E1", "href": "https://api.clover.com/x"},
+            "device": {"id": "D1"},
+            "href": "https://api.clover.com/ce",
+        }
+    )
+    _assert_no_banned(out)
+    assert out["amount"] == 2000
+    assert out["employee_id"] == "E1"
+    assert out["device_id"] == "D1"
+
+
+def test_merchant_properties_drops_banking_fields() -> None:
+    """Merchant /properties carries banking/account numbers — they must never
+    surface through the allowlist."""
+    raw = {
+        "defaultCurrency": "USD",
+        "timezone": "America/Chicago",
+        "tipsEnabled": True,
+        "supportPhone": "+1 555 0100",
+        # sensitive — must be dropped
+        "abaAccountNumber": "000000000000000",
+        "ddaAccountNumber": "***********3770",
+        "href": "https://api.clover.com/v3/merchants/M1/properties",
+        "merchantRef": {"id": "M1"},
+    }
+    out = shape_merchant_properties(raw)
+    _assert_no_banned(out)
+    assert out["defaultCurrency"] == "USD"
+    assert out["tipsEnabled"] is True
+    assert "abaAccountNumber" not in out
+    assert "ddaAccountNumber" not in out
+    assert "merchantRef" not in out
+
+
+def test_credit_strips_refs_keeps_amount() -> None:
+    out = shape_credit(
+        {
+            "id": "CR1",
+            "amount": 1200,
+            "createdTime": 1700000500000,
+            "tender": {"id": "CREDIT", "label": "Store Credit", "href": "https://x"},
+            "customer": {"id": "CUST1", "cards": {"elements": [{"token": "tok_secret"}]}},
+            "employee": {"id": "EMP1", "href": "https://x"},
+            "href": "https://api.clover.com/v3/merchants/M1/credits/CR1",
+        }
+    )
+    _assert_no_banned(out)
+    assert out["amount"] == 1200
+    assert out["customer_id"] == "CUST1"
+    assert out["employee_id"] == "EMP1"
+    assert out["tender"] == "Store Credit"
+    assert "cards" not in out
+    assert "customer" not in out
+
+
+def test_item_association_expansions_strip_hrefs() -> None:
+    """get_item(include=...) expansions (modifierGroups, taxRates, tags,
+    categoryDetails) must project through the same shapers as their standalone
+    list_* tools — no href leak, no raw passthrough."""
+    raw = {
+        "id": "I1",
+        "name": "Latte",
+        "price": 500,
+        "modifierGroups": {"elements": [{"id": "MG1", "name": "Milk", "href": "https://x"}]},
+        "taxRates": {
+            "elements": [{"id": "TAX1", "name": "Sales Tax", "rate": 825000, "href": "https://x"}]
+        },
+        "tags": {"elements": [{"id": "TAG1", "name": "Seasonal", "href": "https://x"}]},
+        "categoryDetails": {"elements": [{"id": "CAT1", "name": "Drinks", "href": "https://x"}]},
+    }
+    out = shape_item(raw)
+    _assert_no_banned(out)
+    assert out["modifier_groups"] == [{"id": "MG1", "name": "Milk"}]
+    assert out["tax_rates"][0]["id"] == "TAX1"
+    assert out["tax_rates"][0]["rate_percent"] == 8.25
+    assert out["tags"] == [{"id": "TAG1", "name": "Seasonal"}]
+    assert out["category_details"] == [{"id": "CAT1", "name": "Drinks"}]
+
+
+def test_order_discount_strips_href_keeps_disc_type_and_ref() -> None:
+    """apply_order_discount response shaper — catalogue-linked discount carries
+    discType=DEFAULT + a discount ref; no href leak."""
+    raw = {
+        "id": "D1",
+        "name": "Happy Hour",
+        "percentage": 10,
+        "discType": "DEFAULT",
+        "discount": {"id": "CATDISC1", "href": "https://x"},
+        "href": "https://api.clover.com/v3/merchants/M1/orders/O1/discounts/D1",
+    }
+    out = shape_order_discount(raw)
+    _assert_no_banned(out)
+    assert out["disc_type"] == "DEFAULT"
+    assert out["discount_ref"] == "CATDISC1"
+    assert out["percentage"] == 10
+
+
+def test_modifier_strips_href_keeps_group_ref() -> None:
+    raw = {
+        "id": "MOD1",
+        "name": "Oat milk",
+        "price": 75,
+        "available": True,
+        "deleted": False,
+        "modifierGroup": {"id": "MG1", "href": "https://x"},
+        "href": "https://api.clover.com/v3/merchants/M1/modifier_groups/MG1/modifiers/MOD1",
+    }
+    out = shape_modifier(raw)
+    _assert_no_banned(out)
+    assert out["modifier_group_id"] == "MG1"
+    assert out["price"] == 75
 
 
 def test_merchant_shaped_cleanly() -> None:

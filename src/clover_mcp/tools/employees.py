@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from clover_mcp.client import CloverClient
-from clover_mcp.shaping import shape_employee, shape_shift
+from clover_mcp.shaping import shape_employee, shape_role, shape_shift
 from clover_mcp.windowing import date_to_ms, split_window
 
 
@@ -59,6 +59,17 @@ async def get_employee(client: CloverClient, employee_id: str) -> dict[str, Any]
         raise ValueError("employee_id must not be empty")
     raw = await client.get(f"/employees/{employee_id}")
     return shape_employee(raw)
+
+
+async def list_roles(client: CloverClient) -> dict[str, Any]:
+    """Return the merchant's employee roles (name + system role category).
+
+    Requires EMPLOYEES_R.
+    """
+    roles: list[dict[str, Any]] = []
+    async for el in client.iterate("/roles", limit=100):
+        roles.append(shape_role(el))
+    return {"roles": roles, "count": len(roles)}
 
 
 async def _shifts_for_employee(

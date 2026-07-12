@@ -217,6 +217,39 @@ async def test_get_order_happy_path(client: CloverClient, mock_http: respx.Route
 
 
 @pytest.mark.asyncio
+async def test_get_order_includes_payments(client: CloverClient, mock_http: respx.Router) -> None:
+    """get_order expands payments — they must appear in output, with card data stripped."""
+    order_with_payments = {
+        **ORDER_PAID,
+        "payments": {
+            "elements": [
+                {
+                    "id": "PAY1",
+                    "amount": 2000,
+                    "result": "SUCCESS",
+                    "tender": {"id": "CREDIT", "label": "CREDIT_CARD"},
+                    "cardTransaction": {"last4": "4242", "token": "tok_secret"},
+                }
+            ]
+        },
+    }
+    mock_http.get(_order_path("ORD_PAID1")).mock(
+        return_value=httpx.Response(200, json=order_with_payments)
+    )
+
+    result = await get_order(client, "ORD_PAID1")
+
+    assert "payments" in result
+    assert len(result["payments"]) == 1
+    p = result["payments"][0]
+    assert p["id"] == "PAY1"
+    assert p["amount"] == 2000
+    assert p["tender"] == "CREDIT_CARD"
+    # card data never surfaces
+    assert "cardTransaction" not in p
+
+
+@pytest.mark.asyncio
 async def test_get_order_404(client: CloverClient, mock_http: respx.Router) -> None:
     """Non-existent order raises CloverAPIError with 404."""
     mock_http.get(_order_path("FAKEID")).mock(

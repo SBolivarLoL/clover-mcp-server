@@ -8,8 +8,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
-
 _REGION_PROD: dict[str, str] = {
     "na": "https://api.clover.com",
     "eu": "https://api.eu.clover.com",
@@ -69,6 +67,21 @@ class Config:
     # and forwards an identity HTTP header, not a token). If set, the tenant key is
     # read from this request header instead of the token claim.
     tenant_header: str = ""
+    # SECURITY: routing tenants by a forwarded header is only safe if the gateway
+    # STRIPS any client-supplied copy of that header — otherwise a client can spoof
+    # it and read another merchant's data. This must be set to true to opt in, after
+    # verifying the gateway strips it (see docs/SECURITY.md). Fail-closed default.
+    trust_identity_header: bool = False
+    # Global kill switch: when true every write tool is refused before any HTTP
+    # call. For cautious merchants, demos, and incident response. Enforced at the
+    # single choke point in client._send (is_write=True).
+    read_only: bool = False
+    # Write-velocity guard: at most `write_limit_count` write-tool calls per
+    # `write_limit_window_s` seconds, per tenant. Stops an agent-gone-wrong from
+    # doing 30 price changes in a minute. 0 disables the guard. Enforced at the
+    # write choke point in client._send.
+    write_limit_count: int = 10
+    write_limit_window_s: int = 300
     base_url: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -81,6 +94,10 @@ class Config:
 
 def load_config() -> Config:
     """Load and validate configuration from environment variables."""
+    # Load .env here (not at import) so merely importing this module never pulls
+    # a developer's real credentials into os.environ — tests import config freely.
+    load_dotenv()
+
     errors: list[str] = []
 
     def require(name: str) -> str:
@@ -95,11 +112,43 @@ def load_config() -> Config:
     def truthy(name: str, default: str = "false") -> bool:
         return optional(name, default).lower() in ("1", "true", "yes")
 
+    def integer(name: str, default: int, *, minimum: int, maximum: int | None = None) -> int:
+        raw = optional(name, str(default)) or str(default)
+        try:
+            value = int(raw)
+        except ValueError:
+            errors.append(f"  • {name} must be an integer, got {raw!r}")
+            return default
+        if value < minimum and maximum is not None:
+            errors.append(f"  • {name} must be between {minimum} and {maximum}, got {value}")
+            return default
+        if value < minimum:
+            qualifier = "zero or greater" if minimum == 0 else "greater than zero"
+            errors.append(f"  • {name} must be {qualifier}, got {value}")
+            return default
+        if maximum is not None and value > maximum:
+            errors.append(f"  • {name} must be between {minimum} and {maximum}, got {value}")
+            return default
+        return value
+
     transport = optional("CLOVER_TRANSPORT", "stdio").lower()
     multi_merchant = truthy("CLOVER_MULTI_MERCHANT")
+    tenant_header = optional("CLOVER_TENANT_HEADER")
+    trust_identity_header = truthy("CLOVER_TRUST_IDENTITY_HEADER")
+    http_port = integer("CLOVER_HTTP_PORT", 8000, minimum=1, maximum=65535)
+    write_limit_count = integer("CLOVER_WRITE_LIMIT_COUNT", 10, minimum=0)
+    write_limit_window_s = integer("CLOVER_WRITE_LIMIT_WINDOW_S", 300, minimum=1)
 
     if transport not in ("stdio", "http"):
         errors.append(f"  • CLOVER_TRANSPORT must be 'stdio' or 'http', got {transport!r}")
+
+    # SECURITY: routing tenants by a forwarded HTTP header is a spoofing risk unless
+    # the gateway strips client-supplied copies. This is NOT a hard startup error —
+    # the server must still boot so the `whoami` diagnostic works (it's the tool you
+    # run for the header-spoofing test in docs/SECURITY.md). The actual fail-closed
+    # enforcement is at request time in remote.request_tenant_key, which refuses
+    # every DATA path unless CLOVER_TRUST_IDENTITY_HEADER=true. A startup WARNING is
+    # emitted in server._check_permissions (consistent with the permission self-check).
     # multi_merchant routes by the authenticated request's identity, so it needs an
     # auth layer — either ours (CLOVER_TRANSPORT=http + IdP) or a managed platform
     # like FastMCP Cloud / Horizon (which provides auth even with transport unset).
@@ -147,12 +196,15 @@ def load_config() -> Config:
             )
         if not refresh_token and not stored.get("refresh_token"):
             errors.append("  • CLOVER_REFRESH_TOKEN is required (or populate the token store)")
-        for name, val in [
-            ("CLOVER_OAUTH_CLIENT_ID", oauth_client_id),
-            ("CLOVER_OAUTH_CLIENT_SECRET", oauth_client_secret),
-        ]:
-            if not val:
-                errors.append(f"  • {name} is required when CLOVER_AUTH_MODE=oauth_refresh")
+        if not oauth_client_id:
+            errors.append(
+                "  • CLOVER_OAUTH_CLIENT_ID is required when CLOVER_AUTH_MODE=oauth_refresh"
+            )
+        # CLOVER_OAUTH_CLIENT_SECRET is optional: Clover's v2 refresh accepts
+        # client_id + refresh_token alone (confirmed on a live sandbox). It's sent
+        # in the refresh body only when provided (auth.py), so an operator whose
+        # app requires it can set it — but no one is forced to handle a secret the
+        # refresh doesn't use.
 
     # validate region (triggers ValueError we convert to config error)
     try:
@@ -181,7 +233,7 @@ def load_config() -> Config:
         token_store=token_store,
         transport=transport,
         http_host=optional("CLOVER_HTTP_HOST", "127.0.0.1"),
-        http_port=int(optional("CLOVER_HTTP_PORT", "8000") or "8000"),
+        http_port=http_port,
         http_path=optional("CLOVER_HTTP_PATH", "/mcp"),
         multi_merchant=multi_merchant,
         auth_issuer=optional("CLOVER_AUTH_ISSUER"),
@@ -192,5 +244,9 @@ def load_config() -> Config:
         merchant_claim=optional("CLOVER_MERCHANT_CLAIM", "clover_merchant_id"),
         merchant_store=merchant_store,
         tenant_claim=optional("CLOVER_TENANT_CLAIM"),
-        tenant_header=optional("CLOVER_TENANT_HEADER"),
+        tenant_header=tenant_header,
+        trust_identity_header=trust_identity_header,
+        read_only=truthy("CLOVER_READ_ONLY"),
+        write_limit_count=write_limit_count,
+        write_limit_window_s=write_limit_window_s,
     )

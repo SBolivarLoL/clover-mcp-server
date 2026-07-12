@@ -5,6 +5,266 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+Production-readiness hardening — the P0 and P1 items from the readiness review —
+plus the roadmap-completion sprint: two expanded reads, five guarded writes, a
+live sandbox audit of the remaining open roadmap items, and the ROADMAP/README
+reconciliation that followed. 56 tools total (up from 47 in 0.7.0).
+
+### Added
+- **`get_sales_by_employee`**, **`get_tips_by_employee`**, and
+  **`get_sales_by_hour`** (`PAYMENTS_R`) — sales attribution, tip-out, and
+  merchant-local daypart reporting. Employee names are enriched when
+  `EMPLOYEES_R` is available and degrade cleanly to IDs otherwise.
+- Audit lines now carry a UTC `ts`, and (multi-tenant) the resolved `tenant` key,
+  so the write trail records **who acted and when** — not just which merchant.
+- **`GET /healthz`** — an unauthenticated liveness probe for self-hosted HTTP
+  behind a load balancer (the `/mcp` path requires a token). Makes no Clover call.
+- **`get_item(item_id, include=[...])`** — opt-in association expansion:
+  `"modifier_groups"`, `"tax_rates"`, `"categories"` (full records, not just
+  ids), `"tags"`. All four verified sandbox-side 2026-07-05 to be acceptable
+  together. Covers the item↔modifier-group and item↔tax association reads that
+  were previously open on the roadmap, via the existing endpoint instead of new
+  standalone list tools.
+- **`list_credits`** (`PAYMENTS_R`) — merchant credits (store/account-credit
+  adjustments), standard paginated shape via `shape_credit`. Sandbox-verified
+  200 with an empty result set (no credits provisioned on the audit sandbox);
+  the element shape is therefore UNVERIFIED and shaped conservatively — flagged
+  in `docs/endpoints.md` to revisit once a live credit exists.
+- **`apply_order_discount`** (`ORDERS_W`, guarded write) — apply a percentage,
+  fixed-amount, or catalogue discount to an order. Dry-run + expected-current
+  pre-check (client-computed line-item subtotal, since Clover exposes no
+  computed order total) + elicitation before the POST. Safety notes: Clover
+  requires a **negative** `amount` on the wire for amount-based discounts — the
+  tool takes a positive `amount_cents` from the caller and negates it
+  internally; catalogue discounts are not resolved server-side, so the tool
+  fetches the catalogue discount's `name` + `percentage`/`amount` and sends
+  them inline alongside the `discount` reference.
+- **`update_item_name`** (`INVENTORY_W`, guarded write) — rename an inventory
+  item. Dry-run + `expected_current_name` pre-check + elicitation. Verified
+  sandbox-side that the underlying `POST` is a non-clobbering partial update
+  (other item fields survive the rename).
+- **`create_modifier_group`**, **`create_modifier`**, **`create_tag`**
+  (`INVENTORY_W`, guarded additive writes) — create a modifier group, a
+  modifier within a group, and a tag/label. Dry-run + elicitation; additive
+  only (`destructiveHint=False`), no pre-check needed since nothing existing is
+  overwritten.
+
+### Audited (docs/endpoints.md, 2026-07-05 live sandbox pass)
+- **Negative finding — voided line items have no read path.**
+  `GET /orders/{id}?expand=voidedLineItems` returns 200 but silently ignores the
+  expansion (the key never appears in the response body); the dedicated
+  `GET /orders/{id}/voided_line_items` returns 405. No tool surfaces voided line
+  items separately as a result.
+- **Negative finding — no time-card resource.** Both
+  `GET /merchants/{mId}/time_cards` and
+  `GET /merchants/{mId}/employees/{employeeId}/timecards` return 405 at every
+  level tried. Shifts remain Clover's only time-detail resource; `list_shifts`/
+  `list_active_shifts` already cover them, so no new tool was added.
+- **Correction — merchant-level `GET /shifts` does exist.** An earlier audit
+  note claimed there was no merchant-level shifts endpoint; the 2026-07-05 pass
+  found it returns 200 with the same shape as the per-employee endpoint (still
+  no embedded employee name). `list_shifts`/`list_active_shifts` deliberately
+  keep the existing per-employee-iteration implementation, since it already
+  enriches employee names from the iterated employee record.
+- **Void line item stays excluded.** Clover exposes only `DELETE` for this
+  resource; repo policy excludes deletes, and no POST/PUT alternative exists.
+- **Item↔modifier-group and tag↔item association writes stay excluded.** The
+  `POST` endpoints return `200 {}`, but the resulting association is never
+  observable via any read path (including the new `get_item(include=[...])`),
+  so the mandatory expected-state post-check can't be implemented.
+- Full binding decisions recorded in ROADMAP.md (reads-to-add and
+  writes-to-decide sections) and the corresponding rows in
+  `docs/endpoints.md`.
+
+### Reconciled
+- ROADMAP.md — every previously open checkbox affected by the 2026-07-05 audit
+  is now resolved (shipped, excluded, or no-op) or, for the handful that remain
+  externally gated (OAuth onboarding, webhook bridge, legal/compliance, IdP
+  module, Dockerfile/CI-CD), annotated with the reason and a pointer to where
+  it's tracked.
+- README.md and ROADMAP.md tool/test counts updated to match the working tree
+  (56 tools, 399 tests).
+
+### Changed
+- Tenant records now fail closed when `auth_mode`, credentials, region, or the
+  JSON `sandbox` value is invalid; quoted string booleans can no longer silently
+  select the wrong Clover environment.
+- `CLOVER_HTTP_PORT`, `CLOVER_WRITE_LIMIT_COUNT`, and
+  `CLOVER_WRITE_LIMIT_WINDOW_S` now produce aggregated configuration errors and
+  enforce safe ranges (port 1–65535, count ≥0, window >0).
+- OAuth refresh token-store reads and atomic writes run off the asyncio event
+  loop while retaining the cross-process single-use-token lock.
+- CI now lints and format-checks maintained scripts as well as source and tests.
+- Each Clover client caps in-flight requests at 5 (a per-token `asyncio.Semaphore`)
+  to stay under Clover's ~5-concurrent-per-token limit during parallel reads and
+  90-day fan-outs.
+- `iterate()` now has a `max_pages` safety ceiling (default 1000); if hit before
+  the data is exhausted it emits a structured `note` rather than walking forever.
+- `CLOVER_OAUTH_CLIENT_SECRET` is **optional** — Clover's v2 refresh accepts
+  `client_id` + `refresh_token` alone; the secret is sent only when set, so an
+  operator whose app requires it can provide it without forcing everyone to.
+- 401 remediation hints are auth-mode-aware — `oauth_refresh` mode points at the
+  refresh grant, not at `CLOVER_ACCESS_TOKEN`.
+- `.env` now loads inside `load_config()` (not at import), so importing `config`
+  no longer pulls real credentials into the environment; tests scrub `CLOVER_*`.
+- Pinned `fastmcp>=3.4,<4` — `uvx` resolves fresh per user, so an untested major
+  can't brick installs overnight.
+- CI enforces coverage — `pytest-cov` with `--cov-fail-under=85` (current 89%).
+
+### Fixed
+- **Cross-process token-refresh race** — the OAuth refresh now holds a POSIX
+  `flock` on the token store (re-reading under the lock), so replicas sharing one
+  store can't both spend a single-use refresh token. Windows (no `fcntl`) falls
+  back to the in-process lock.
+- A failed OAuth refresh now surfaces as a `CloverAPIError` with an actionable
+  message instead of a raw `httpx.HTTPStatusError`.
+
+## [0.7.0] — 2026-07-01
+Production observability (audit logging + optional OpenTelemetry tracing/latency)
+plus a published eval/benchmark, architecture diagrams, a runnable demo, and
+enterprise-identity (SSO/SAML/SCIM/multi-tenant) integration docs.
+
+### Added — observability
+- **Audit logging** — every write emits a structured JSON line to stderr
+  (`method`, `path`, `status`, `merchant`; no bodies or secrets). On by default;
+  disable with `CLOVER_AUDIT_LOG=false`.
+- **OpenTelemetry tracing (optional)** — every Clover HTTP call is wrapped in a
+  span. Install the `otel` extra and configure an OTLP exporter for real
+  distributed traces; without it, tracing is a zero-cost no-op.
+- **Latency logging** — `CLOVER_LATENCY_LOG=true` emits per-request `latency_ms`
+  lines to stderr.
+
+### Added — eval & benchmark
+- **scripts/benchmark.py + docs/eval.md** — correctness eval (leak gate on live
+  sandbox data, 28/28 read tools), latency percentiles (p50/p95), and a bounded
+  load test, with methodology and failure analysis.
+
+### Added — architecture & demo
+- **docs/ARCHITECTURE.md** — system + guarded-write sequence diagrams (Mermaid)
+  and the module responsibility table.
+- **docs/DEMO.md + scripts/demo.py** — a runnable and a narrated 5-minute demo
+  (read-only + dry-run; nothing is mutated).
+
+### Added — enterprise identity docs
+- **docs/enterprise-identity.md** — how SSO/SAML, SCIM, audit logging, and
+  multi-tenant authorization map onto this resource server (IdP/gateway own login
+  and provisioning; the server consumes validated identity and enforces per-tenant
+  isolation, fail-closed), with a responsibility matrix and SCIM→tenant-lifecycle
+  mapping.
+
+## [0.6.0] — 2026-07-01
+Three read tools closing gaps found in a full Clover-API surface review, plus a
+defense-in-depth auth warning and a documented path from sandbox to production.
+
+### Added — reads (sandbox-verified)
+- **`list_discounts`** (INVENTORY_R) — the merchant's discount catalogue.
+- **`list_tip_suggestions`** (MERCHANT_R) — tip-suggestion presets (percentage or flat).
+- **`get_default_service_charge`** (MERCHANT_R) — default service-charge config;
+  closes the `get_sales_summary` service-charge gap (orders expose only a percentage).
+
+### Security
+- **RFC 8707 audience binding** — http mode now logs a startup WARNING when
+  `CLOVER_AUTH_AUDIENCE` is unset, so bearer tokens get bound to this resource.
+
+### Docs
+- **docs/DEPLOY.md** — "Path to production" (sandbox → real merchants via the Clover
+  Developer Program) with a per-scope permission-justification table.
+- **docs/clover-app-submission.md** — app listing copy, permission justifications,
+  and a functional-video script for Clover app approval.
+- **docs/research/** — MCP best-practices + full Clover-API-surface research and a
+  consolidated gap analysis.
+
+## [0.5.0] — 2026-06-25
+Multi-tenant security hardening — the gate to hosting real merchants. The
+forwarded-header trust boundary is now fail-closed (verified live: the
+FastMCP Cloud / Horizon gateway strips client-supplied identity headers), with
+per-tenant credential isolation and a full hardening checklist in docs/SECURITY.md.
+
+### Security — multi-tenant hardening (REQUIRED before hosting real merchants)
+- **Forwarded-header identity is now fail-closed.** Routing tenants by a gateway
+  header (`CLOVER_TENANT_HEADER`, e.g. `horizon-user-email`) is a spoofing risk
+  unless the gateway strips client-supplied copies. Without
+  `CLOVER_TRUST_IDENTITY_HEADER=true`, the server **boots but refuses every data
+  call** (`request_tenant_key` fails closed) and logs a startup warning — it does
+  not hard-fail, so `whoami` stays reachable to run the header-spoofing test that
+  the opt-in requires. `whoami` surfaces the trust state and the test procedure.
+  (Existing header-based multi-tenant deploys must set this flag after verifying
+  their gateway — until then they serve no data.)
+- **Per-tenant credential isolation.** Tenant entries can reference each token by
+  its own env var (`access_token_env` / `refresh_token_env`) instead of inlining
+  every merchant's plaintext token in one `CLOVER_TENANTS_JSON` blob — so each
+  secret can be injected individually from a secret manager. Missing reference →
+  fail closed.
+- **docs/SECURITY.md** — vulnerability reporting + the full multi-tenant hardening
+  checklist (spoofing test, prefer-JWT-over-header, encryption-at-rest, one-deploy-
+  per-merchant, custodial legal duties).
+
+## [0.4.0] — 2026-06-24
+Agent-ready release: the server now spans all four MCP capability layers — tools
+(reads + guarded writes), AI/LLM tools via client sampling, predefined prompts,
+and elicitation/resources — so a merchant can run their Clover business by
+conversation. 44 tools, 6 prompts, 1 resource.
+
+### Added — Layer 4 capabilities (resource + logging)
+- **`clover://capabilities`** MCP resource: a read-only cheat-sheet (tools split
+  read/write, prompts, guardrails, hard exclusions) built live from the registry
+  so an agent can ground itself in one fetch without spending tool calls.
+- **Progress logging**: `get_sales_summary` emits per-window log lines via
+  `ctx.info` when a query spans more than one 90-day window (guarded — never
+  fails if the client doesn't support logging).
+
+### Added — Layer 1 guarded writes + Layer 4 elicitation
+- Five guarded write tools (all validate → dry_run preview → **confirm before
+  writing**): `create_category`, `create_item`, `create_order`, `add_line_item`,
+  `update_customer`. Sandbox-verified live end-to-end 2026-06-24.
+- **Confirmation gate** (`confirm.py`): writes confirm via MCP **elicitation**
+  (`ctx.elicit`) — the MCP-native guardrail — or an explicit `confirm=True`
+  override. Fail-closed: with neither an accepted elicitation nor `confirm=True`,
+  the write is refused (`confirmation_required`).
+- Still excluded by design: payment capture, refunds, voids, charge creation,
+  record deletes, gateway config. `update_customer` uses POST (Clover returns 405
+  on PUT/PATCH); email/phone are sub-resources and are not modified here.
+
+### Added — Layer 3 prompts (MCP prompts capability)
+- Six predefined `@mcp.prompt` workflows that drive the existing read tools so a
+  merchant's agent runs common jobs out of the box (no LLM call inside a prompt):
+  `daily_briefing`, `weekly_sales_report`, `inventory_health_check`,
+  `end_of_day_closeout`, `customer_lookup(query)`, `monthly_tax_summary(month)`.
+
+### Added — Layer 2 AI/LLM tools (MCP sampling)
+- Five tools that reason over Clover data via `ctx.sample()` — the **server holds
+  no LLM key** and makes no paid API call; it asks the connected client's model.
+  `summarize_sales`, `suggest_item_categories`, `inventory_reorder_suggestions`,
+  `detect_sales_anomalies`, `draft_customer_message(intent)`. All read-only, with
+  bounded prompts and a graceful fallback (data + note) when the client can't sample.
+
+### Added — Layer 1 expanded reads (API coverage)
+- **`list_order_types`**, **`list_opening_hours`**, **`list_cash_events`** (MERCHANT_R):
+  reference data agents ask about ("are we open?", cash-drawer log).
+- **`list_attributes`** (item variant axes + options) and **`list_tags`** (INVENTORY_R).
+- `get_order` now expands **discounts** and per-line-item **modifications/discounts**,
+  and surfaces the line item's catalog `item_id`.
+
+## [0.3.0] — 2026-06-24
+### Fixed
+- `get_order` now returns the order's **payments** (allowlist-shaped via
+  `shape_payment`, so card data is still stripped). The tool expanded `payments`
+  and its docstring promised a "payment summary", but `shape_order` silently
+  dropped them — the field never reached the caller.
+
+### Added — expanded read surface (API coverage)
+- **`list_refunds`** (PAYMENTS_R): list refunds in a date window. Clover refunds
+  are separate objects with a positive `amount` (cents); `transactionInfo` is
+  dropped by the shaper.
+- **`list_tenders`** (MERCHANT_R): list the merchant's tender types (cash,
+  credit, custom payment methods).
+- **`list_roles`** (EMPLOYEES_R): list employee roles (name + system role).
+- **`get_merchant_properties`** (MERCHANT_R): merchant POS settings (currency,
+  tips, stock tracking, closeout, locale, support contacts). The shaper allowlist
+  deliberately excludes the banking/account fields in the raw payload.
+- **`list_item_groups`** (INVENTORY_R): list item groups (item variant sets).
+
 ### Added — multi-tenant (v2 phase 2)
 - Map each authenticated request to its own Clover merchant by token identity,
   so one deployment can serve many merchants. The tenant map loads from
@@ -121,5 +381,8 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 - Employee/shift tools (planned v1.1), multi-merchant hosted mode + MCP-level
   OAuth 2.1 (planned v2).
 
-[Unreleased]: https://github.com/SBolivarLoL/clover-mcp-server/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/SBolivarLoL/clover-mcp-server/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/SBolivarLoL/clover-mcp-server/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/SBolivarLoL/clover-mcp-server/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/SBolivarLoL/clover-mcp-server/compare/v0.2.0...v0.3.0
 [0.1.0]: https://github.com/SBolivarLoL/clover-mcp-server/releases/tag/v0.1.0

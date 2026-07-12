@@ -8,7 +8,7 @@ import respx
 
 from clover_mcp.client import CloverClient
 from clover_mcp.errors import CloverAPIError
-from clover_mcp.tools.reporting import get_sales_summary, list_payments
+from clover_mcp.tools.reporting import get_sales_summary, list_credits, list_payments, list_refunds
 from tests.conftest import TEST_MERCHANT_ID
 
 # ── Shared fixtures / helpers ─────────────────────────────────────────────────
@@ -75,6 +75,10 @@ def _payments_path() -> str:
 
 def _refunds_path() -> str:
     return f"/v3/merchants/{TEST_MERCHANT_ID}/refunds"
+
+
+def _credits_path() -> str:
+    return f"/v3/merchants/{TEST_MERCHANT_ID}/credits"
 
 
 # A Clover refund — a separate object with a positive amount (not a negative payment)
@@ -330,3 +334,112 @@ async def test_list_payments_shaped_fields(client: CloverClient, mock_http: resp
     assert p["employee_id"] == "EMP1"
     # Card transaction must be absent
     assert "cardTransaction" not in p
+
+
+# ── list_refunds tests ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_refunds_shaped(client: CloverClient, mock_http: respx.Router) -> None:
+    """Refunds are returned with positive amount; transaction detail stripped."""
+    raw = {
+        **REFUND_1,
+        "orderRef": {"id": "ORD9"},
+        "payment": {"id": "PAY9"},
+        "transactionInfo": {"last4": "4242"},  # must be dropped
+    }
+    mock_http.get(_refunds_path()).mock(return_value=httpx.Response(200, json={"elements": [raw]}))
+
+    results = await list_refunds(client, date_from="2024-01-01", date_to="2024-01-01")
+
+    assert len(results) == 1
+    r = results[0]
+    assert r["id"] == "RF1"
+    assert r["amount"] == 300  # positive cents
+    assert r["order_id"] == "ORD9"
+    assert r["payment_id"] == "PAY9"
+    assert "transactionInfo" not in r
+
+
+@pytest.mark.asyncio
+async def test_list_refunds_bad_limit(client: CloverClient, mock_http: respx.Router) -> None:
+    with pytest.raises(ValueError, match="limit must be between"):
+        await list_refunds(client, limit=0)
+
+
+# ── list_credits tests ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_credits_happy_path(client: CloverClient, mock_http: respx.Router) -> None:
+    raw = {
+        "id": "CR1",
+        "amount": 1200,
+        "createdTime": 1700000500000,
+        "tender": {"id": "CREDIT", "label": "Store Credit"},
+        "customer": {"id": "CUST1"},
+        "employee": {"id": "EMP1"},
+        "href": "https://api.clover.com/v3/merchants/M1/credits/CR1",
+    }
+    mock_http.get(_credits_path()).mock(return_value=httpx.Response(200, json={"elements": [raw]}))
+
+    result = await list_credits(client)
+
+    assert result["count"] == 1
+    credit = result["credits"][0]
+    assert credit["id"] == "CR1"
+    assert credit["amount"] == 1200
+    assert credit["customer_id"] == "CUST1"
+    assert credit["employee_id"] == "EMP1"
+    assert credit["tender"] == "Store Credit"
+    assert "href" not in credit
+
+
+@pytest.mark.asyncio
+async def test_list_credits_empty(client: CloverClient, mock_http: respx.Router) -> None:
+    mock_http.get(_credits_path()).mock(return_value=httpx.Response(200, json={"elements": []}))
+    result = await list_credits(client)
+    assert result["count"] == 0
+    assert result["credits"] == []
+
+
+@pytest.mark.asyncio
+async def test_list_credits_403(client: CloverClient, mock_http: respx.Router) -> None:
+    mock_http.get(_credits_path()).mock(
+        return_value=httpx.Response(403, json={"message": "No permission"})
+    )
+    with pytest.raises(CloverAPIError) as exc_info:
+        await list_credits(client)
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_list_credits_401(client: CloverClient, mock_http: respx.Router) -> None:
+    mock_http.get(_credits_path()).mock(
+        return_value=httpx.Response(401, json={"message": "401 Unauthorized"})
+    )
+    with pytest.raises(CloverAPIError) as exc_info:
+        await list_credits(client)
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_log_helper_is_guarded() -> None:
+    """_log never raises: None is a no-op; a logging ctx is called; a failing
+    ctx is swallowed (logging is optional, must not break the tool)."""
+    from clover_mcp.tools.reporting import _log
+
+    calls = []
+
+    class GoodCtx:
+        async def info(self, msg):
+            calls.append(msg)
+
+    class BadCtx:
+        async def info(self, msg):
+            raise RuntimeError("no logging capability")
+
+    await _log(None, "x")  # no-op, no error
+    await _log(GoodCtx(), "hello")
+    await _log(BadCtx(), "swallowed")
+    assert calls == ["hello"]

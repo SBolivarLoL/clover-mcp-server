@@ -12,6 +12,8 @@ Wraps httpx.AsyncClient with:
 from __future__ import annotations
 
 import asyncio
+import time
+from collections import deque
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -20,17 +22,38 @@ import httpx
 from clover_mcp import __version__
 from clover_mcp.auth import TokenStore, refresh_access_token
 from clover_mcp.config import Config
-from clover_mcp.errors import raise_for_status
+from clover_mcp.errors import ReadOnlyError, WriteVelocityError, raise_for_status
+from clover_mcp.observability import audit, note, traced
 
 _USER_AGENT = f"clover-mcp/{__version__} (+https://github.com/SBolivarLoL/clover-mcp-server)"
+
+# Clover permits ~5 concurrent requests per access token. One client exists per
+# token (per tenant in multi-merchant mode), so a per-client semaphore keeps an
+# eager agent — parallel read tools, 90-day fan-outs — from tripping 429s.
+_MAX_CONCURRENT_REQUESTS = 5
+
+# Safety ceiling for iterate(): a backstop against an unbounded page walk (a
+# runaway aggregation, or an API that never returns a short final page). At the
+# common limit=100 this is 100k rows per call — far above any real window; when
+# it fires we emit a `note` so a truncated result is never silent.
+_MAX_PAGES = 1000
 
 
 class CloverClient:
     """Async HTTP client for the Clover REST API."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, tenant: str | None = None) -> None:
         self._config = config
+        # Identity of the caller this client serves (multi-tenant key); recorded
+        # in write audit records so the trail answers "who", not just "which merchant".
+        self._tenant = tenant
         self._access_token = self._load_initial_token()
+        self._sem = asyncio.Semaphore(_MAX_CONCURRENT_REQUESTS)
+        # Monotonic timestamps of recent successful write starts, for the
+        # write-velocity guard. Per-client == per-tenant (one client per token).
+        # ponytail: in-memory per-process window; a shared store is only needed
+        # if you run >1 worker and want the cap enforced across them.
+        self._write_times: deque[float] = deque()
         self._http = httpx.AsyncClient(
             base_url=config.base_url,
             timeout=30,
@@ -66,6 +89,27 @@ class CloverClient:
         self._access_token = await refresh_access_token(self._config, self._access_token)
         return await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
 
+    def _check_write_velocity(self, method: str, path: str) -> None:
+        """Sliding-window cap on write-tool calls per tenant. Refuses (before any
+        HTTP) once `write_limit_count` writes have started within the window, and
+        records this attempt. Disabled when the count is 0."""
+        cap = self._config.write_limit_count
+        if cap <= 0:
+            return
+        window = self._config.write_limit_window_s
+        now = time.monotonic()
+        cutoff = now - window
+        while self._write_times and self._write_times[0] < cutoff:
+            self._write_times.popleft()
+        if len(self._write_times) >= cap:
+            audit("write_refused", method=method, path=path, reason="write_velocity")
+            raise WriteVelocityError(
+                f"Write refused: {cap} writes already in the last {window}s "
+                f"(CLOVER_WRITE_LIMIT_COUNT). No data was modified. Stop writing and have "
+                "the operator review the audit log before continuing."
+            )
+        self._write_times.append(now)
+
     async def _send(
         self,
         method: str,
@@ -76,6 +120,18 @@ class CloverClient:
         url = self._url(path)
         context = f"{method} {path}"
 
+        if is_write:
+            # Global read-only kill switch first — a read-only server refuses every
+            # write regardless of velocity, and a refused write must not count toward
+            # the velocity window (checked second).
+            if self._config.read_only:
+                audit("write_refused", method=method, path=path, reason="read_only")
+                raise ReadOnlyError(
+                    f"Server is in read-only mode (CLOVER_READ_ONLY=true); refused {method} {path}. "
+                    "No data was modified. Unset CLOVER_READ_ONLY to enable writes."
+                )
+            self._check_write_velocity(method, path)
+
         # oauth_refresh may start with no access token (e.g. a tenant configured
         # with only a refresh token, or an ephemeral host with an empty store).
         # Bootstrap one first — an empty `Bearer ` header is rejected before it's
@@ -83,26 +139,45 @@ class CloverClient:
         if not self._access_token and self._config.auth_mode == "oauth_refresh":
             self._access_token = await refresh_access_token(self._config, "")
 
-        resp = await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
-
-        # 401 → refresh once (oauth_refresh only)
-        if resp.status_code == 401 and self._config.auth_mode == "oauth_refresh":
-            resp = await self._refresh_and_retry(method, url, **kwargs)
-
-        # 429 → single auto-retry if short wait
-        if resp.status_code == 429:
-            raw = resp.headers.get("Retry-After", "")
-            wait = int(raw) if raw.isdigit() else None
-            if wait is not None and wait <= 5:
-                await asyncio.sleep(wait)
-                resp = await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
-
-        # 5xx reads → single retry with 1s backoff; writes never retry
-        if resp.status_code >= 500 and not is_write:
-            await asyncio.sleep(1)
+        # Trace the whole request (incl. retries) — a real OTel span if the operator
+        # configured an exporter, otherwise a no-op with an optional latency line.
+        # The semaphore bounds in-flight requests per token (incl. retry waits).
+        async with self._sem, traced("clover.http", method=method, path=path):
             resp = await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
 
-        raise_for_status(resp, context=context)
+            # 401 → refresh once (oauth_refresh only)
+            if resp.status_code == 401 and self._config.auth_mode == "oauth_refresh":
+                resp = await self._refresh_and_retry(method, url, **kwargs)
+
+            # 429 → single auto-retry if short wait
+            if resp.status_code == 429:
+                raw = resp.headers.get("Retry-After", "")
+                wait = int(raw) if raw.isdigit() else None
+                if wait is not None and wait <= 5:
+                    await asyncio.sleep(wait)
+                    resp = await self._http.request(
+                        method, url, headers=self._auth_headers(), **kwargs
+                    )
+
+            # 5xx reads → single retry with 1s backoff; writes never retry
+            if resp.status_code >= 500 and not is_write:
+                await asyncio.sleep(1)
+                resp = await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
+
+        # Audit every mutation attempt — including failures — with the final status.
+        # No request bodies or secrets; path may carry resource ids (not sensitive).
+        if is_write:
+            fields: dict[str, Any] = {
+                "method": method,
+                "path": path,
+                "status": resp.status_code,
+                "merchant": self._config.merchant_id,
+            }
+            if self._tenant is not None:
+                fields["tenant"] = self._tenant
+            audit("write", **fields)
+
+        raise_for_status(resp, context=context, auth_mode=self._config.auth_mode)
         return resp
 
     async def get(self, path: str, **params: Any) -> dict[str, Any]:
@@ -124,18 +199,24 @@ class CloverClient:
         await self._send("DELETE", path, is_write=True, params=params)
 
     async def iterate(
-        self, path: str, *, limit: int = 100, **params: Any
+        self, path: str, *, limit: int = 100, max_pages: int = _MAX_PAGES, **params: Any
     ) -> AsyncIterator[dict[str, Any]]:
-        """Yield every element across paginated Clover list responses."""
+        """Yield every element across paginated Clover list responses.
+
+        Stops after `max_pages` as a safety backstop; if the cap is hit before the
+        data is exhausted, emits a `note` (so a truncated aggregate is never silent)
+        and stops rather than walking forever.
+        """
         offset = 0
-        while True:
+        for _page in range(max_pages):
             body = await self.get(path, limit=limit, offset=offset, **params)
             elements: list[dict[str, Any]] = body.get("elements", [])
             for el in elements:
                 yield el
             if len(elements) < limit:
-                break
+                return
             offset += limit
+        note("pagination_capped", path=path, max_pages=max_pages, rows=offset)
 
     async def close(self) -> None:
         await self._http.aclose()

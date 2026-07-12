@@ -8,12 +8,13 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import Any
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 
 from clover_mcp.client import CloverClient
 from clover_mcp.config import Config, load_config
 from clover_mcp.errors import CloverAPIError
+from clover_mcp.prompts import register_prompts
 from clover_mcp.remote import (
     auth_context,
     build_auth_provider,
@@ -21,29 +22,62 @@ from clover_mcp.remote import (
     request_tenant_key,
     tenant_config,
 )
+from clover_mcp.resources import register_resources
+from clover_mcp.tools.ai import detect_sales_anomalies as _detect_sales_anomalies
+from clover_mcp.tools.ai import draft_customer_message as _draft_customer_message
+from clover_mcp.tools.ai import inventory_reorder_suggestions as _inventory_reorder_suggestions
+from clover_mcp.tools.ai import suggest_item_categories as _suggest_item_categories
+from clover_mcp.tools.ai import summarize_sales as _summarize_sales
 from clover_mcp.tools.customers import create_customer as _create_customer
 from clover_mcp.tools.customers import get_customer as _get_customer
 from clover_mcp.tools.customers import search_customers as _search_customers
+from clover_mcp.tools.customers import update_customer as _update_customer
 from clover_mcp.tools.employees import get_employee as _get_employee
 from clover_mcp.tools.employees import list_active_shifts as _list_active_shifts
 from clover_mcp.tools.employees import list_employees as _list_employees
+from clover_mcp.tools.employees import list_roles as _list_roles
 from clover_mcp.tools.employees import list_shifts as _list_shifts
+from clover_mcp.tools.inventory import create_category as _create_category
+from clover_mcp.tools.inventory import create_item as _create_item
+from clover_mcp.tools.inventory import create_modifier as _create_modifier
+from clover_mcp.tools.inventory import create_modifier_group as _create_modifier_group
+from clover_mcp.tools.inventory import create_tag as _create_tag
 from clover_mcp.tools.inventory import get_item as _get_item
+from clover_mcp.tools.inventory import list_attributes as _list_attributes
 from clover_mcp.tools.inventory import list_categories as _list_categories
+from clover_mcp.tools.inventory import list_discounts as _list_discounts
+from clover_mcp.tools.inventory import list_item_groups as _list_item_groups
 from clover_mcp.tools.inventory import list_items as _list_items
 from clover_mcp.tools.inventory import list_low_stock_items as _list_low_stock_items
 from clover_mcp.tools.inventory import list_modifiers as _list_modifiers
+from clover_mcp.tools.inventory import list_tags as _list_tags
 from clover_mcp.tools.inventory import list_taxes as _list_taxes
 from clover_mcp.tools.inventory import set_item_price_cents as _set_item_price_cents
 from clover_mcp.tools.inventory import set_item_stock_quantity as _set_item_stock_quantity
+from clover_mcp.tools.inventory import update_item_name as _update_item_name
+from clover_mcp.tools.merchant import get_default_service_charge as _get_default_service_charge
 from clover_mcp.tools.merchant import get_merchant_info as _get_merchant_info
+from clover_mcp.tools.merchant import get_merchant_properties as _get_merchant_properties
+from clover_mcp.tools.merchant import list_cash_events as _list_cash_events
 from clover_mcp.tools.merchant import list_devices as _list_devices
+from clover_mcp.tools.merchant import list_opening_hours as _list_opening_hours
+from clover_mcp.tools.merchant import list_order_types as _list_order_types
+from clover_mcp.tools.merchant import list_tenders as _list_tenders
+from clover_mcp.tools.merchant import list_tip_suggestions as _list_tip_suggestions
+from clover_mcp.tools.orders import add_line_item as _add_line_item
+from clover_mcp.tools.orders import apply_order_discount as _apply_order_discount
+from clover_mcp.tools.orders import create_order as _create_order
 from clover_mcp.tools.orders import get_order as _get_order
 from clover_mcp.tools.orders import list_open_orders as _list_open_orders
 from clover_mcp.tools.orders import list_orders as _list_orders
+from clover_mcp.tools.reporting import get_sales_by_employee as _get_sales_by_employee
+from clover_mcp.tools.reporting import get_sales_by_hour as _get_sales_by_hour
 from clover_mcp.tools.reporting import get_sales_summary as _get_sales_summary
+from clover_mcp.tools.reporting import get_tips_by_employee as _get_tips_by_employee
 from clover_mcp.tools.reporting import get_top_items as _get_top_items
+from clover_mcp.tools.reporting import list_credits as _list_credits
 from clover_mcp.tools.reporting import list_payments as _list_payments
+from clover_mcp.tools.reporting import list_refunds as _list_refunds
 
 
 @asynccontextmanager
@@ -83,6 +117,23 @@ mcp: FastMCP = FastMCP(
     auth=_auth,
 )
 
+# Layer 3 — predefined prompt workflows (no LLM call; they drive the read tools).
+register_prompts(mcp)
+# Layer 4 — capability cheat-sheet resource (clover://capabilities).
+register_resources(mcp)
+
+
+@mcp.custom_route("/healthz", methods=["GET"])
+async def _healthz(_request: Any) -> Any:
+    """Unauthenticated liveness probe for self-hosted HTTP behind a load balancer.
+
+    The /mcp path requires a bearer token, so an LB has nothing else to probe.
+    Deliberately makes NO Clover call — a probe must not spend rate limit or leak
+    whether Clover creds are reachable. Harmless in stdio (no HTTP server runs)."""
+    from starlette.responses import JSONResponse
+
+    return JSONResponse({"ok": True})
+
 
 async def create_server() -> FastMCP:
     """Hosted/remote entrypoint (e.g. FastMCP Cloud `fastmcp run server.py:create_server`).
@@ -97,7 +148,7 @@ async def create_server() -> FastMCP:
     server: FastMCP = FastMCP(
         "Clover POS", instructions=_INSTRUCTIONS, lifespan=_lifespan, auth=auth
     )
-    server.mount(mcp)  # expose all 23 tools (no prefix)
+    server.mount(mcp)  # expose all tools (no prefix)
     return server
 
 
@@ -136,7 +187,7 @@ def _get_client() -> CloverClient:
         key = request_tenant_key(config)
         client = _clients.get(key)
         if client is None:
-            client = CloverClient(tenant_config(config, _get_tenants(), key))
+            client = CloverClient(tenant_config(config, _get_tenants(), key), tenant=key)
             _clients[key] = client
         return client
 
@@ -161,6 +212,20 @@ async def _check_permissions() -> None:
         print(f"WARNING: could not load configuration at startup: {exc}", file=sys.stderr)
         return
 
+    if config.read_only:
+        print(
+            "clover-mcp is in READ-ONLY mode (CLOVER_READ_ONLY=true) — all write "
+            "tools will refuse before any Clover API call.",
+            file=sys.stderr,
+        )
+
+    if config.write_limit_count > 0:
+        print(
+            f"Write-velocity guard active: max {config.write_limit_count} writes per "
+            f"{config.write_limit_window_s}s per tenant (CLOVER_WRITE_LIMIT_COUNT).",
+            file=sys.stderr,
+        )
+
     # Multi-merchant has no single startup merchant — credentials and scopes are
     # resolved (and surfaced as 403s) per request instead.
     if config.multi_merchant:
@@ -169,6 +234,18 @@ async def _check_permissions() -> None:
             "happen on first use.",
             file=sys.stderr,
         )
+        # SECURITY warning (non-fatal): forwarded-header routing without the trust
+        # opt-in. The server still boots so `whoami` can run the header-spoofing
+        # test, but every DATA call fails closed in request_tenant_key until the
+        # gateway is verified and CLOVER_TRUST_IDENTITY_HEADER=true is set.
+        if config.tenant_header and not config.trust_identity_header:
+            print(
+                f"WARNING: CLOVER_TENANT_HEADER={config.tenant_header!r} routes tenants by a "
+                "forwarded header, but CLOVER_TRUST_IDENTITY_HEADER is not set. All data tools "
+                "will FAIL CLOSED until you run the header-spoofing test (docs/SECURITY.md) and "
+                "opt in. `whoami` still works so you can run that test.",
+                file=sys.stderr,
+            )
         return
 
     try:
@@ -269,19 +346,21 @@ async def get_merchant_info() -> dict[str, Any]:
 
 @mcp.tool(annotations=_READ)
 async def get_sales_summary(
+    ctx: Context,
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> dict[str, Any]:
     """Return an aggregated sales summary for the given date window.
 
     Defaults to today (UTC) when no dates are supplied. Uses 90-day chunking
-    so multi-month or full-year queries work transparently.
+    so multi-month or full-year queries work transparently (emits progress logs
+    when more than one window is scanned).
 
     Rules: only result=SUCCESS payments counted; voids/refunds reported separately;
     tips, taxes broken out; offline payments flagged; currency from merchant record.
     This tool does NOT support payment capture, refund, or void actions.
     """
-    return await _get_sales_summary(_get_client(), date_from=date_from, date_to=date_to)
+    return await _get_sales_summary(_get_client(), date_from=date_from, date_to=date_to, ctx=ctx)
 
 
 @mcp.tool(annotations=_READ)
@@ -289,13 +368,78 @@ async def list_payments(
     date_from: str | None = None,
     date_to: str | None = None,
     limit: int = 50,
+    fields: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """List payments within an optional date window (default: today, limit 50).
 
     Only result=SUCCESS payments. Card transaction details never included.
+    fields: optional list of field names to keep (narrows the response; cannot widen past the allowlist).
     This tool does NOT support payment capture, refund, or void actions.
     """
-    return await _list_payments(_get_client(), date_from=date_from, date_to=date_to, limit=limit)
+    return await _list_payments(
+        _get_client(), date_from=date_from, date_to=date_to, limit=limit, fields=fields
+    )
+
+
+@mcp.tool(annotations=_READ)
+async def list_refunds(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """List refunds within an optional date window (default: today, limit 50).
+
+    Clover refunds are separate objects with a positive amount (cents), not
+    negative payments. Card/transaction detail is never included. Requires
+    PAYMENTS_R. This tool does NOT issue refunds.
+    """
+    return await _list_refunds(_get_client(), date_from=date_from, date_to=date_to, limit=limit)
+
+
+@mcp.tool(annotations=_READ)
+async def list_credits() -> dict[str, Any]:
+    """Return the merchant's credits (store/account-credit adjustments, up to 1000).
+
+    Element shape is unverified (sandbox has none provisioned) — shaped
+    conservatively. Requires PAYMENTS_R.
+    """
+    return await _list_credits(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def get_sales_by_employee(
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """Return gross sales grouped by employee for a date window (default: today).
+
+    Requires PAYMENTS_R; employee name enrichment additionally requires
+    EMPLOYEES_R (degrades to IDs-only with a note if not granted).
+    """
+    return await _get_sales_by_employee(_get_client(), date_from=date_from, date_to=date_to)
+
+
+@mcp.tool(annotations=_READ)
+async def get_tips_by_employee(
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """Return a tip-out sheet: tips collected grouped by employee (default: today).
+
+    Requires PAYMENTS_R; employee name enrichment additionally requires
+    EMPLOYEES_R (degrades to IDs-only with a note if not granted).
+    """
+    return await _get_tips_by_employee(_get_client(), date_from=date_from, date_to=date_to)
+
+
+@mcp.tool(annotations=_READ)
+async def get_sales_by_hour(date: str | None = None) -> dict[str, Any]:
+    """Return gross sales bucketed by local hour-of-day for a single day (default: today).
+
+    Buckets use the merchant's local timezone, falling back to UTC with a note
+    if unavailable. Requires PAYMENTS_R.
+    """
+    return await _get_sales_by_hour(_get_client(), date=date)
 
 
 @mcp.tool(annotations=_READ)
@@ -304,14 +448,16 @@ async def list_orders(
     date_to: str | None = None,
     state: str | None = None,
     limit: int = 50,
+    fields: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """List orders within an optional date window and/or state filter (default: today, limit 50).
 
     state: open | paid | refunded | partially_refunded (omit for all states).
     Customer card data is never included. This tool is read-only.
+    fields: optional list of field names to keep (narrows the response; cannot widen past the allowlist).
     """
     return await _list_orders(
-        _get_client(), date_from=date_from, date_to=date_to, state=state, limit=limit
+        _get_client(), date_from=date_from, date_to=date_to, state=state, limit=limit, fields=fields
     )
 
 
@@ -341,20 +487,31 @@ async def list_items(
     category_id: str | None = None,
     limit: int = 100,
     offset: int = 0,
+    fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Return a page of inventory items. Filter by name (query) or category (category_id).
 
     Requires INVENTORY_R.
+    fields: optional list of field names to keep (narrows the response; cannot widen past the allowlist).
     """
     return await _list_items(
-        _get_client(), query=query, category_id=category_id, limit=limit, offset=offset
+        _get_client(),
+        query=query,
+        category_id=category_id,
+        limit=limit,
+        offset=offset,
+        fields=fields,
     )
 
 
 @mcp.tool(annotations=_READ)
-async def get_item(item_id: str) -> dict[str, Any]:
-    """Return a single inventory item by ID, including stock quantity. Requires INVENTORY_R."""
-    return await _get_item(_get_client(), item_id)
+async def get_item(item_id: str, include: list[str] | None = None) -> dict[str, Any]:
+    """Return a single inventory item by ID, including stock quantity.
+
+    Pass include=["modifier_groups"], ["tax_rates"], ["categories"], and/or
+    ["tags"] to opt in to those association details. Requires INVENTORY_R.
+    """
+    return await _get_item(_get_client(), item_id, include=include)
 
 
 @mcp.tool(annotations=_READ)
@@ -379,15 +536,87 @@ async def list_modifiers() -> dict[str, Any]:
 
 
 @mcp.tool(annotations=_READ)
+async def list_item_groups() -> dict[str, Any]:
+    """Return item groups (sets of item variants, e.g. size/color). Requires INVENTORY_R."""
+    return await _list_item_groups(_get_client())
+
+
+@mcp.tool(annotations=_READ)
 async def list_taxes() -> dict[str, Any]:
     """Return the merchant's tax rates (raw rate + computed percent). Requires INVENTORY_R."""
     return await _list_taxes(_get_client())
 
 
 @mcp.tool(annotations=_READ)
+async def list_discounts() -> dict[str, Any]:
+    """Return the merchant's discount catalogue (fixed-amount or percentage). Requires INVENTORY_R."""
+    return await _list_discounts(_get_client())
+
+
+@mcp.tool(annotations=_READ)
 async def list_devices() -> dict[str, Any]:
     """Return the merchant's Clover devices/terminals. Requires MERCHANT_R."""
     return await _list_devices(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_tenders() -> dict[str, Any]:
+    """Return the merchant's tender types (payment methods: cash, credit, custom). Requires MERCHANT_R."""
+    return await _list_tenders(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def get_merchant_properties() -> dict[str, Any]:
+    """Return the merchant's POS configuration (currency, tips, stock tracking,
+    closeout, locale, support contacts). Banking/account fields are never returned.
+    Requires MERCHANT_R."""
+    return await _get_merchant_properties(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_order_types() -> dict[str, Any]:
+    """Return the merchant's order types (Dine In, Take Out, …). Requires MERCHANT_R."""
+    return await _list_order_types(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_opening_hours() -> dict[str, Any]:
+    """Return the merchant's opening-hours sets (per-day time ranges). Requires MERCHANT_R."""
+    return await _list_opening_hours(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_tip_suggestions() -> dict[str, Any]:
+    """Return the merchant's tip-suggestion presets (percentage or flat amount). Requires MERCHANT_R."""
+    return await _list_tip_suggestions(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def get_default_service_charge() -> dict[str, Any]:
+    """Return the merchant's default service charge configuration (name, enabled, percentage).
+    Requires MERCHANT_R."""
+    return await _get_default_service_charge(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_cash_events(limit: int = 50) -> dict[str, Any]:
+    """Return recent cash-drawer events (paid in/out, no-sale, deposits).
+
+    Capped at `limit` (default 50, max 500). Requires MERCHANT_R.
+    """
+    return await _list_cash_events(_get_client(), limit=limit)
+
+
+@mcp.tool(annotations=_READ)
+async def list_attributes() -> dict[str, Any]:
+    """Return item attributes (variant axes like Size/Color) with options. Requires INVENTORY_R."""
+    return await _list_attributes(_get_client())
+
+
+@mcp.tool(annotations=_READ)
+async def list_tags() -> dict[str, Any]:
+    """Return the merchant's tags/labels used to group items. Requires INVENTORY_R."""
+    return await _list_tags(_get_client())
 
 
 @mcp.tool(annotations=_READ)
@@ -438,18 +667,26 @@ async def list_active_shifts() -> dict[str, Any]:
 
 
 @mcp.tool(annotations=_READ)
+async def list_roles() -> dict[str, Any]:
+    """Return the merchant's employee roles (name + system role category). Requires EMPLOYEES_R."""
+    return await _list_roles(_get_client())
+
+
+@mcp.tool(annotations=_READ)
 async def search_customers(
     query: str | None = None,
     phone: str | None = None,
     email: str | None = None,
     limit: int = 50,
+    fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Search customers by full name (query), phone, or email.
 
     Cards are never returned. Requires CUSTOMERS_R.
+    fields: optional list of field names to keep (narrows the response; cannot widen past the allowlist).
     """
     return await _search_customers(
-        _get_client(), query=query, phone=phone, email=email, limit=limit
+        _get_client(), query=query, phone=phone, email=email, limit=limit, fields=fields
     )
 
 
@@ -461,6 +698,79 @@ async def get_customer(customer_id: str, include: list[str] | None = None) -> di
     Cards are never returned. Requires CUSTOMERS_R.
     """
     return await _get_customer(_get_client(), customer_id, include=include)
+
+
+# ── AI/LLM tools (Layer 2 — MCP sampling) ─────────────────────────────────────
+# These gather Clover data, then ask the CONNECTED CLIENT's model to reason via
+# ctx.sample() — the server holds no LLM key. Read-only (annotated _READ): they
+# never write the model's output back. If the client can't sample, they return
+# the raw data with a note instead of failing.
+
+
+@mcp.tool(annotations=_READ)
+async def summarize_sales(
+    ctx: Context,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """AI: plain-language sales briefing for a date window (default: today).
+
+    Gathers the sales summary + top items, then asks your client's model to write
+    a short narrative. Read-only suggestion. Needs a sampling-capable client; if
+    yours can't sample, returns the raw data with a note. Requires ORDERS_R/PAYMENTS_R.
+    """
+    return await _summarize_sales(_get_client(), ctx, date_from=date_from, date_to=date_to)
+
+
+@mcp.tool(annotations=_READ)
+async def suggest_item_categories(ctx: Context, limit: int = 100) -> dict[str, Any]:
+    """AI: suggest categories for uncategorized items from the merchant's own taxonomy.
+
+    Suggestion only — applying a category is a separate, confirmed write. Needs a
+    sampling-capable client (graceful fallback otherwise). Requires INVENTORY_R.
+    """
+    return await _suggest_item_categories(_get_client(), ctx, limit=limit)
+
+
+@mcp.tool(annotations=_READ)
+async def inventory_reorder_suggestions(
+    ctx: Context,
+    threshold: int = 5,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """AI: prioritized reorder list — low-stock items crossed with sales velocity.
+
+    Read-only suggestion. Needs a sampling-capable client (graceful fallback
+    otherwise). Requires INVENTORY_R and ORDERS_R.
+    """
+    return await _inventory_reorder_suggestions(
+        _get_client(), ctx, threshold=threshold, date_from=date_from, date_to=date_to
+    )
+
+
+@mcp.tool(annotations=_READ)
+async def detect_sales_anomalies(
+    ctx: Context,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """AI: flag unusual refund / discount / sales patterns in a window (default: today).
+
+    Read-only analysis. Needs a sampling-capable client (graceful fallback
+    otherwise). Requires PAYMENTS_R and ORDERS_R.
+    """
+    return await _detect_sales_anomalies(_get_client(), ctx, date_from=date_from, date_to=date_to)
+
+
+@mcp.tool(annotations=_READ)
+async def draft_customer_message(ctx: Context, customer_id: str, intent: str) -> dict[str, Any]:
+    """AI: draft a customer message (promo / win-back / thank-you) for the given intent.
+
+    Returns a DRAFT only — never sends anything. Needs a sampling-capable client
+    (graceful fallback otherwise). Requires CUSTOMERS_R.
+    """
+    return await _draft_customer_message(_get_client(), ctx, customer_id=customer_id, intent=intent)
 
 
 # NOTE: the process entry point is clover_mcp.__main__:main (calls mcp.run()).
@@ -542,3 +852,201 @@ async def set_item_stock_quantity(
     return await _set_item_stock_quantity(
         _get_client(), item_id, new_quantity, expected_current_quantity, dry_run
     )
+
+
+# ── Guarded creates + updates (Layer 1 writes + Layer 4 elicitation) ───────────
+# Each validates, supports dry_run preview, and confirms before writing via MCP
+# elicitation (ctx.elicit) — or an explicit confirm=True override. They never
+# capture payments, issue refunds, or delete records.
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def create_category(
+    ctx: Context, name: str, dry_run: bool = False, confirm: bool = False
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new inventory category.
+
+    Previews on dry_run; confirms via your client's prompt (MCP elicitation) or
+    confirm=True before writing. Requires INVENTORY_W.
+    """
+    return await _create_category(_get_client(), ctx, name, dry_run=dry_run, confirm=confirm)
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def create_item(
+    ctx: Context, name: str, price_cents: int, dry_run: bool = False, confirm: bool = False
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new inventory item (name + price in cents).
+
+    Bounds 0–100_000_000 cents. Previews on dry_run; confirms via MCP elicitation
+    or confirm=True before writing. Requires INVENTORY_W.
+    """
+    return await _create_item(
+        _get_client(), ctx, name, price_cents, dry_run=dry_run, confirm=confirm
+    )
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def create_order(
+    ctx: Context, note: str | None = None, dry_run: bool = False, confirm: bool = False
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new open order (no line items, no payment).
+
+    Previews on dry_run; confirms via MCP elicitation or confirm=True before
+    writing. Add items with add_line_item. Requires ORDERS_W.
+    """
+    return await _create_order(_get_client(), ctx, note=note, dry_run=dry_run, confirm=confirm)
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def add_line_item(
+    ctx: Context, order_id: str, item_id: str, dry_run: bool = False, confirm: bool = False
+) -> dict[str, Any]:
+    """Modifies merchant data. Add a catalog item as a line item to an order.
+
+    Name/price are copied from the catalog item. Previews on dry_run; confirms via
+    MCP elicitation or confirm=True before writing. Requires ORDERS_W. No payment.
+    """
+    return await _add_line_item(
+        _get_client(), ctx, order_id, item_id, dry_run=dry_run, confirm=confirm
+    )
+
+
+@mcp.tool(annotations=_WRITE_SET)
+async def update_customer(
+    ctx: Context,
+    customer_id: str,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    marketing_allowed: bool | None = None,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Update a customer's name and/or marketing opt-in.
+
+    Only the fields you pass change. Previews on dry_run; confirms via MCP
+    elicitation or confirm=True before writing. Requires CUSTOMERS_W.
+    """
+    return await _update_customer(
+        _get_client(),
+        ctx,
+        customer_id,
+        first_name=first_name,
+        last_name=last_name,
+        marketing_allowed=marketing_allowed,
+        dry_run=dry_run,
+        confirm=confirm,
+    )
+
+
+@mcp.tool(annotations=_WRITE_SET)
+async def apply_order_discount(
+    ctx: Context,
+    order_id: str,
+    name: str | None = None,
+    percentage: int | None = None,
+    amount_cents: int | None = None,
+    catalogue_discount_id: str | None = None,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Apply an order-level discount.
+
+    Exactly one of percentage (1-100), amount_cents (1-100_000_000, positive —
+    Clover requires a negative amount on the wire, this tool negates it for you),
+    or catalogue_discount_id must be given. Catalogue discounts are resolved
+    client-side (name + percentage/amount fetched from list_discounts and sent
+    inline). Previews on dry_run (includes current discounts + a client-computed
+    line-item subtotal — Clover has no computed order total); confirms via MCP
+    elicitation or confirm=True before writing. Requires ORDERS_W.
+    """
+    return await _apply_order_discount(
+        _get_client(),
+        ctx,
+        order_id,
+        name=name,
+        percentage=percentage,
+        amount_cents=amount_cents,
+        catalogue_discount_id=catalogue_discount_id,
+        dry_run=dry_run,
+        confirm=confirm,
+    )
+
+
+@mcp.tool(annotations=_WRITE_SET)
+async def update_item_name(
+    ctx: Context,
+    item_id: str,
+    new_name: str,
+    expected_current_name: str,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Rename an inventory item (price/other fields preserved).
+
+    Optimistic lock: refuses unless the item's current name equals
+    expected_current_name. Bounds: non-empty, <= 127 characters. dry_run=True
+    previews the POST body (still performs one read) and never writes.
+    Requires INVENTORY_R and INVENTORY_W.
+    """
+    return await _update_item_name(
+        _get_client(),
+        ctx,
+        item_id,
+        new_name,
+        expected_current_name,
+        dry_run=dry_run,
+        confirm=confirm,
+    )
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def create_modifier_group(
+    ctx: Context, name: str, dry_run: bool = False, confirm: bool = False
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new modifier group (e.g. "Milk options").
+
+    Duplicate guard: refuses if a group with the same name (case-insensitive)
+    already exists. Previews on dry_run; confirms via MCP elicitation or
+    confirm=True before writing. Requires INVENTORY_W.
+    """
+    return await _create_modifier_group(_get_client(), ctx, name, dry_run=dry_run, confirm=confirm)
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def create_modifier(
+    ctx: Context,
+    modifier_group_id: str,
+    name: str,
+    price_cents: int,
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new modifier within a modifier group.
+
+    Pre-check: verifies the modifier group exists (404 -> clear error). Bounds:
+    0 <= price_cents <= 100_000_000. Previews on dry_run; confirms via MCP
+    elicitation or confirm=True before writing. Requires INVENTORY_W.
+    """
+    return await _create_modifier(
+        _get_client(),
+        ctx,
+        modifier_group_id,
+        name,
+        price_cents,
+        dry_run=dry_run,
+        confirm=confirm,
+    )
+
+
+@mcp.tool(annotations=_WRITE_ADD)
+async def create_tag(
+    ctx: Context, name: str, dry_run: bool = False, confirm: bool = False
+) -> dict[str, Any]:
+    """Modifies merchant data. Create a new tag/label used to group items.
+
+    Duplicate guard: refuses if a tag with the same name (case-insensitive)
+    already exists. Previews on dry_run; confirms via MCP elicitation or
+    confirm=True before writing. Requires INVENTORY_W.
+    """
+    return await _create_tag(_get_client(), ctx, name, dry_run=dry_run, confirm=confirm)
