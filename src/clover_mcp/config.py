@@ -112,10 +112,32 @@ def load_config() -> Config:
     def truthy(name: str, default: str = "false") -> bool:
         return optional(name, default).lower() in ("1", "true", "yes")
 
+    def integer(name: str, default: int, *, minimum: int, maximum: int | None = None) -> int:
+        raw = optional(name, str(default)) or str(default)
+        try:
+            value = int(raw)
+        except ValueError:
+            errors.append(f"  • {name} must be an integer, got {raw!r}")
+            return default
+        if value < minimum and maximum is not None:
+            errors.append(f"  • {name} must be between {minimum} and {maximum}, got {value}")
+            return default
+        if value < minimum:
+            qualifier = "zero or greater" if minimum == 0 else "greater than zero"
+            errors.append(f"  • {name} must be {qualifier}, got {value}")
+            return default
+        if maximum is not None and value > maximum:
+            errors.append(f"  • {name} must be between {minimum} and {maximum}, got {value}")
+            return default
+        return value
+
     transport = optional("CLOVER_TRANSPORT", "stdio").lower()
     multi_merchant = truthy("CLOVER_MULTI_MERCHANT")
     tenant_header = optional("CLOVER_TENANT_HEADER")
     trust_identity_header = truthy("CLOVER_TRUST_IDENTITY_HEADER")
+    http_port = integer("CLOVER_HTTP_PORT", 8000, minimum=1, maximum=65535)
+    write_limit_count = integer("CLOVER_WRITE_LIMIT_COUNT", 10, minimum=0)
+    write_limit_window_s = integer("CLOVER_WRITE_LIMIT_WINDOW_S", 300, minimum=1)
 
     if transport not in ("stdio", "http"):
         errors.append(f"  • CLOVER_TRANSPORT must be 'stdio' or 'http', got {transport!r}")
@@ -211,7 +233,7 @@ def load_config() -> Config:
         token_store=token_store,
         transport=transport,
         http_host=optional("CLOVER_HTTP_HOST", "127.0.0.1"),
-        http_port=int(optional("CLOVER_HTTP_PORT", "8000") or "8000"),
+        http_port=http_port,
         http_path=optional("CLOVER_HTTP_PATH", "/mcp"),
         multi_merchant=multi_merchant,
         auth_issuer=optional("CLOVER_AUTH_ISSUER"),
@@ -225,6 +247,6 @@ def load_config() -> Config:
         tenant_header=tenant_header,
         trust_identity_header=trust_identity_header,
         read_only=truthy("CLOVER_READ_ONLY"),
-        write_limit_count=int(optional("CLOVER_WRITE_LIMIT_COUNT", "10") or "10"),
-        write_limit_window_s=int(optional("CLOVER_WRITE_LIMIT_WINDOW_S", "300") or "300"),
+        write_limit_count=write_limit_count,
+        write_limit_window_s=write_limit_window_s,
     )

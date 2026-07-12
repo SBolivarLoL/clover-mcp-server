@@ -267,6 +267,31 @@ def test_tenant_config_builds_scoped_single_merchant() -> None:
     assert scoped.token_store.name == "tokens-a_b_c.json"
 
 
+def test_tenant_config_rejects_string_sandbox_flag() -> None:
+    tenants = {"a@b.c": {"merchant_id": "M1", "access_token": "tok1", "sandbox": "false"}}
+    with pytest.raises(PermissionError, match="sandbox.*JSON boolean"):
+        tenant_config(_base_config(), tenants, "a@b.c")
+
+
+@pytest.mark.parametrize("auth_mode", ["invalid", "", None])
+def test_tenant_config_rejects_invalid_auth_mode(auth_mode: object) -> None:
+    tenants = {"a@b.c": {"merchant_id": "M1", "access_token": "tok1", "auth_mode": auth_mode}}
+    with pytest.raises(PermissionError, match="auth_mode"):
+        tenant_config(_base_config(), tenants, "a@b.c")
+
+
+def test_tenant_config_token_mode_requires_access_token() -> None:
+    tenants = {"a@b.c": {"merchant_id": "M1"}}
+    with pytest.raises(PermissionError, match="access_token"):
+        tenant_config(_base_config(), tenants, "a@b.c")
+
+
+def test_tenant_config_oauth_requires_refresh_token_and_client_id() -> None:
+    tenants = {"a@b.c": {"merchant_id": "M1", "auth_mode": "oauth_refresh"}}
+    with pytest.raises(PermissionError, match="refresh_token.*oauth_client_id"):
+        tenant_config(_base_config(oauth_client_id=""), tenants, "a@b.c")
+
+
 def test_tenant_config_unprovisioned_raises() -> None:
     with pytest.raises(PermissionError, match="No Clover merchant provisioned"):
         tenant_config(_base_config(), {}, "ghost@nowhere")

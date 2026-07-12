@@ -78,8 +78,10 @@ async def main() -> None:
         import json
 
         caps = json.loads(contents[0].text)
-        print(f"\n[resource] reads={caps['counts']['reads']} writes={caps['counts']['writes']} "
-              f"prompts={caps['counts']['prompts']}")
+        print(
+            f"\n[resource] reads={caps['counts']['reads']} writes={caps['counts']['writes']} "
+            f"prompts={caps['counts']['prompts']}"
+        )
         prompts = await c.list_prompts()
         print(f"[prompts] {[p.name for p in prompts]}")
         print("  ✅ resource + prompts served over the protocol")

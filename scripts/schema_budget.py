@@ -3,7 +3,7 @@
 
 Every tool's `tools/list` wire payload (name, description, inputSchema,
 outputSchema, annotations, meta) counts against the client's context budget
-before a single call is made. This script sums that cost across all 53 tools
+before a single call is made. This script sums that cost across all registered tools
 and can fail CI when it grows too much.
 
 Token counting prefers `tiktoken` (cl100k_base) when installed, falling back

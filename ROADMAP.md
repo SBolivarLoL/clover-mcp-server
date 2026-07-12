@@ -2,11 +2,13 @@
 
 Working list of what's next. Released state on PyPI + the MCP Registry: **0.7.0**
 (47 tools, 6 prompts, both auth modes, multi-tenant + hosted OAuth, security
-hardened). Working tree (unreleased, staged for the next release): **53 tools** —
+hardened). Working tree (unreleased, staged for the next release): **56 tools** —
 the roadmap-completion sprint (2026-07-05) added `get_item` include-expansions,
 `list_credits`, and five guarded writes (`apply_order_discount`,
 `update_item_name`, `create_modifier_group`, `create_modifier`, `create_tag`); see
-CHANGELOG.md `[Unreleased]` for the full list. Full design context lives in the
+three reporting-depth reads (`get_sales_by_employee`, `get_tips_by_employee`,
+`get_sales_by_hour`) followed; see CHANGELOG.md `[Unreleased]` for the full list.
+Full design context lives in the
 private build plan; this file is the actionable backlog. Research + gap analysis:
 [docs/research/](docs/research/). Fresh idea dump + sequencing (2026-07):
 [docs/roadmap-extended.md](docs/roadmap-extended.md).
@@ -112,7 +114,7 @@ probe. **Deployed on FastMCP Cloud / Horizon and sandbox-proven.**
 
 ## Layer 1 — API coverage (the Clover surface)
 
-Status today (working tree, unreleased): **53 tools**, read-mostly + 13 guarded
+Status today (working tree, unreleased): **56 tools**, read-mostly + 13 guarded
 writes. Goal: cover the surface a business-owner agent realistically needs. Each
 row is the standard recipe. Writes carry
 a per-endpoint decision: **read-only** / **guarded-write** (dry-run + optimistic lock +
@@ -248,7 +250,7 @@ chains them deterministically.
 ## Layer 4 — MCP capabilities checklist (what makes v1.0 "complete")
 
 A complete agent-ready server:
-- [x] **Tools** — 53 (40 read-only incl. 5 AI/sampling + 13 guarded write; working
+- [x] **Tools** — 56 (43 read-only incl. 5 AI/sampling + 13 guarded write; working
       tree, unreleased), allowlist-shaped, annotated.
 - [x] **Prompts** — Layer 3. Six `@mcp.prompt` workflows shipped.
 - [x] **Sampling** — Layer 2 (client-side LLM; server stays key-free). Five tools shipped.
@@ -260,7 +262,7 @@ A complete agent-ready server:
 - [x] **Structured output schemas** — _decided-deferred, 2026-07-05._ FastMCP
       auto-derives an `outputSchema`/`structuredContent` for every tool today
       (loose `object`/`array`); hand-writing rich, per-tool typed schemas across
-      all 53 tools is a full-registry refactor for marginal client-side benefit.
+      all 56 tools is a full-registry refactor for marginal client-side benefit.
       Rationale recorded in `docs/research/gap-analysis.md` (§ `outputSchema` /
       `structuredContent` row). Revisit only if a client demonstrably needs
       stricter typing to parse responses correctly.

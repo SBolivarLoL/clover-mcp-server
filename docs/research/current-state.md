@@ -1,8 +1,12 @@
-# Current state — what clover-mcp already has (v0.5.0)
+# Historical current-state snapshot (v0.5.0)
 
-Baseline inventory, captured from source. Used to mark "already have" in the
-gap analysis. Generated as part of the research pass. **This is the pre-pass
-baseline (44 tools); the pass added 3 → 47. See [gap-analysis.md](gap-analysis.md).**
+> Historical research snapshot taken 2026-06-29. Counts and inventories below
+> intentionally describe v0.5.0 and are not the current product state. For the
+> live inventory, use the [README](../../README.md), [roadmap](../../ROADMAP.md),
+> and generated `clover://capabilities` resource.
+
+Baseline inventory, captured from source for the gap-analysis pass: 44 tools;
+that pass added 3 → 47. See [gap-analysis.md](gap-analysis.md).
 
 ## Tools (44)
 

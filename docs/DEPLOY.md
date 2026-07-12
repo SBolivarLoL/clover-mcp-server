@@ -143,9 +143,14 @@ MCP client ──token──> clover-mcp (resource server) ──validates JWT�
 | `CLOVER_AUTH_AUDIENCE` | recommended | expected token audience |
 | `CLOVER_AUTH_SCOPES` | optional | required scopes, space/comma separated |
 | `CLOVER_MULTI_MERCHANT` | for SaaS | `true` to route by token claim |
-| `CLOVER_MERCHANT_CLAIM` | optional | claim holding the merchant id (default `clover_merchant_id`) |
+| `CLOVER_TENANT_CLAIM` | optional | validated JWT claim whose value keys the tenant map; empty defaults to email, then subject |
+| `CLOVER_TENANT_HEADER` | managed gateway only | gateway-injected identity header used instead of a JWT claim |
+| `CLOVER_TRUST_IDENTITY_HEADER` | required with tenant header | explicit opt-in after verifying the gateway strips spoofed client copies |
 | `CLOVER_MERCHANT_STORE` | multi-merchant | path to the per-merchant credentials JSON |
 | `CLOVER_HTTP_HOST` / `CLOVER_HTTP_PORT` / `CLOVER_HTTP_PATH` | optional | bind address / port / path (defaults `127.0.0.1` / `8000` / `/mcp`) |
+| `CLOVER_READ_ONLY` | optional | `true` refuses every write before any Clover API call (default `false`) |
+| `CLOVER_WRITE_LIMIT_COUNT` | optional | writes allowed per tenant/window (default `10`; `0` disables; negative values are rejected) |
+| `CLOVER_WRITE_LIMIT_WINDOW_S` | optional | positive window length in seconds (default `300`) |
 
 The server **refuses to start** in http mode unless `CLOVER_AUTH_JWKS_URI`,
 `CLOVER_AUTH_ISSUER`, and `CLOVER_PUBLIC_URL` are all set — a remote MCP server
@@ -153,11 +158,14 @@ must not run unauthenticated.
 
 ## Merchant store
 
-`CLOVER_MERCHANT_STORE` points at a JSON file keyed by Clover merchant id:
+`CLOVER_MERCHANT_STORE` points at a JSON file keyed by the authenticated tenant
+identity selected by `CLOVER_TENANT_CLAIM` (or email/subject fallback), or by
+the trusted gateway header when `CLOVER_TENANT_HEADER` is configured:
 
 ```json
 {
-  "MERCHANTID1": {
+  "owner@example.com": {
+    "merchant_id": "MERCHANTID1",
     "access_token": "...",
     "refresh_token": "...",
     "oauth_client_id": "...",
@@ -169,10 +177,19 @@ must not run unauthenticated.
 }
 ```
 
-Rotated refresh tokens are written to `tokens-<merchantId>.json` next to this
-file, so single-use rotation stays isolated per merchant. A flat file is fine
-for a handful of merchants; swap `MerchantStore` in `remote.py` for a database
-or secret-manager lookup when you outgrow it (only `.get()` is called).
+Tenant entries are validated before a client is created. `sandbox` must be a
+JSON boolean (`true`/`false`, not a quoted string); `auth_mode` must be `token`
+or `oauth_refresh`. Token mode requires `access_token`/`access_token_env`.
+Refresh mode requires `refresh_token`/`refresh_token_env` and
+`oauth_client_id`; its access token may initially be empty and will be
+bootstrapped from the refresh token. Invalid regions and credentials fail
+closed on the first request for that tenant.
+
+Rotated refresh tokens are written to a sanitized `tokens-<tenant-key>.json`
+next to this file, so single-use rotation stays isolated per tenant. A flat file is fine
+for a handful of merchants; replace `load_tenants()` in `remote.py` with a
+database or secret-manager lookup when you outgrow it (preserving the same
+identity-keyed entry shape).
 
 Multiple replicas may share one token store on a POSIX filesystem: each refresh
 takes an exclusive `flock` on the store and re-reads under the lock, so two
