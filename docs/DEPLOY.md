@@ -185,11 +185,22 @@ Refresh mode requires `refresh_token`/`refresh_token_env` and
 bootstrapped from the refresh token. Invalid regions and credentials fail
 closed on the first request for that tenant.
 
-Rotated refresh tokens are written to a sanitized `tokens-<tenant-key>.json`
-next to this file, so single-use rotation stays isolated per tenant. A flat file is fine
+Rotated refresh tokens are written to a digest-named `tokens-v2-<digest>.json`
+next to this file. The digest binds the complete tenant identity to its merchant
+and Clover environment, avoiding punctuation and case collisions. A flat file is fine
 for a handful of merchants; replace `load_tenants()` in `remote.py` with a
 database or secret-manager lookup when you outgrow it (preserving the same
 identity-keyed entry shape).
+
+**Upgrading from sanitized tenant filenames:** old `tokens-<sanitized-key>.json`
+files are not loaded or migrated automatically because multiple identities may
+have shared them. Before restarting an OAuth-refresh deployment, provision a
+fresh valid grant for each tenant or explicitly verify the ownership of its
+latest rotated token pair and migrate it to the path returned by
+`tenant_config(...).token_store`. Do not rely on an old seed refresh token after
+it has been used. Keep old files until the migration is verified; do not blindly
+copy a shared file into multiple tenant stores. Static-token tenants and the
+single-merchant `CLOVER_TOKEN_STORE` path are unaffected.
 
 Multiple replicas may share one token store on a POSIX filesystem: each refresh
 takes an exclusive `flock` on the store and re-reads under the lock, so two

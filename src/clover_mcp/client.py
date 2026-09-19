@@ -15,7 +15,9 @@ import asyncio
 import time
 from collections import deque
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -74,20 +76,61 @@ class CloverClient:
         return self._config.access_token
 
     def _url(self, path: str) -> str:
-        """Expand a relative path to the full merchant path."""
-        if path.startswith("http"):
+        """Expand and validate a request path within this merchant boundary."""
+        if (
+            not path
+            or "%" in path
+            or "?" in path
+            or "#" in path
+            or "\\" in path
+            or any(char.isspace() or ord(char) < 32 for char in path)
+        ):
+            raise ValueError(
+                "Request path must not contain encoded, query, fragment, whitespace, or backslash delimiters"
+            )
+
+        if any(segment in {".", ".."} for segment in path.split("/")):
+            raise ValueError("Request path contains a traversal segment")
+
+        merchant_prefix = f"/v3/merchants/{self._config.merchant_id}"
+        parsed = urlsplit(path)
+        if parsed.scheme or parsed.netloc:
+            base = urlsplit(self._config.base_url)
+            if parsed.scheme != base.scheme or parsed.netloc != base.netloc:
+                raise ValueError("Request URL must use the configured Clover host")
+            path = parsed.path
+        if path.startswith("/v3/merchants/"):
+            if not (path == merchant_prefix or path.startswith(f"{merchant_prefix}/")):
+                raise ValueError("Request URL must stay within the configured merchant")
             return path
-        if not path.startswith("/v3"):
-            path = f"/v3/merchants/{self._config.merchant_id}{path}"
-        return path
+        if path.startswith("/v3"):
+            raise ValueError("Request URL must use the configured merchant path")
+        if not path.startswith("/"):
+            raise ValueError("Request path must be absolute or start with '/'")
+        return f"{merchant_prefix}{path}"
 
     def _auth_headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._access_token}"}
 
-    async def _refresh_and_retry(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+    async def _refresh_and_retry(
+        self, method: str, url: str, failed_token: str, **kwargs: Any
+    ) -> httpx.Response:
         """Refresh the OAuth access token and retry the request once."""
-        self._access_token = await refresh_access_token(self._config, self._access_token)
+        self._access_token = await refresh_access_token(self._config, failed_token)
         return await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
+
+    def _audit_write(self, event: str, method: str, path: str, **fields: Any) -> None:
+        """Emit write metadata without allowing logging failures to alter a write."""
+        metadata: dict[str, Any] = {
+            "method": method,
+            "path": path,
+            "merchant": self._config.merchant_id,
+        }
+        if self._tenant is not None:
+            metadata["tenant"] = self._tenant
+        metadata.update(fields)
+        with suppress(Exception):
+            audit(event, **metadata)
 
     def _check_write_velocity(self, method: str, path: str) -> None:
         """Sliding-window cap on write-tool calls per tenant. Refuses (before any
@@ -102,7 +145,7 @@ class CloverClient:
         while self._write_times and self._write_times[0] < cutoff:
             self._write_times.popleft()
         if len(self._write_times) >= cap:
-            audit("write_refused", method=method, path=path, reason="write_velocity")
+            self._audit_write("write_refused", method, path, reason="write_velocity")
             raise WriteVelocityError(
                 f"Write refused: {cap} writes already in the last {window}s "
                 f"(CLOVER_WRITE_LIMIT_COUNT). No data was modified. Stop writing and have "
@@ -125,7 +168,7 @@ class CloverClient:
             # write regardless of velocity, and a refused write must not count toward
             # the velocity window (checked second).
             if self._config.read_only:
-                audit("write_refused", method=method, path=path, reason="read_only")
+                self._audit_write("write_refused", method, path, reason="read_only")
                 raise ReadOnlyError(
                     f"Server is in read-only mode (CLOVER_READ_ONLY=true); refused {method} {path}. "
                     "No data was modified. Unset CLOVER_READ_ONLY to enable writes."
@@ -142,40 +185,42 @@ class CloverClient:
         # Trace the whole request (incl. retries) — a real OTel span if the operator
         # configured an exporter, otherwise a no-op with an optional latency line.
         # The semaphore bounds in-flight requests per token (incl. retry waits).
-        async with self._sem, traced("clover.http", method=method, path=path):
-            resp = await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
+        try:
+            async with self._sem, traced("clover.http", method=method, path=path):
+                request_token = self._access_token
+                resp = await self._http.request(
+                    method, url, headers={"Authorization": f"Bearer {request_token}"}, **kwargs
+                )
 
-            # 401 → refresh once (oauth_refresh only)
-            if resp.status_code == 401 and self._config.auth_mode == "oauth_refresh":
-                resp = await self._refresh_and_retry(method, url, **kwargs)
+                # 401 → refresh once (oauth_refresh only)
+                if resp.status_code == 401 and self._config.auth_mode == "oauth_refresh":
+                    resp = await self._refresh_and_retry(method, url, request_token, **kwargs)
 
-            # 429 → single auto-retry if short wait
-            if resp.status_code == 429:
-                raw = resp.headers.get("Retry-After", "")
-                wait = int(raw) if raw.isdigit() else None
-                if wait is not None and wait <= 5:
-                    await asyncio.sleep(wait)
+                # 429 → single auto-retry if short wait
+                if resp.status_code == 429:
+                    raw = resp.headers.get("Retry-After", "")
+                    wait = int(raw) if raw.isdigit() else None
+                    if wait is not None and wait <= 5:
+                        await asyncio.sleep(wait)
+                        resp = await self._http.request(
+                            method, url, headers=self._auth_headers(), **kwargs
+                        )
+
+                # 5xx reads → single retry with 1s backoff; writes never retry
+                if resp.status_code >= 500 and not is_write:
+                    await asyncio.sleep(1)
                     resp = await self._http.request(
                         method, url, headers=self._auth_headers(), **kwargs
                     )
-
-            # 5xx reads → single retry with 1s backoff; writes never retry
-            if resp.status_code >= 500 and not is_write:
-                await asyncio.sleep(1)
-                resp = await self._http.request(method, url, headers=self._auth_headers(), **kwargs)
+        except BaseException:
+            if is_write:
+                self._audit_write("write_uncertain", method, path, outcome="uncertain")
+            raise
 
         # Audit every mutation attempt — including failures — with the final status.
         # No request bodies or secrets; path may carry resource ids (not sensitive).
         if is_write:
-            fields: dict[str, Any] = {
-                "method": method,
-                "path": path,
-                "status": resp.status_code,
-                "merchant": self._config.merchant_id,
-            }
-            if self._tenant is not None:
-                fields["tenant"] = self._tenant
-            audit("write", **fields)
+            self._audit_write("write", method, path, status=resp.status_code)
 
         raise_for_status(resp, context=context, auth_mode=self._config.auth_mode)
         return resp
@@ -186,6 +231,8 @@ class CloverClient:
 
     async def post(self, path: str, json: Any = None, **params: Any) -> dict[str, Any]:
         resp = await self._send("POST", path, is_write=True, json=json, params=params)
+        if not resp.content:
+            return {}
         return resp.json()  # type: ignore[no-any-return]
 
     async def put(self, path: str, json: Any = None, **params: Any) -> dict[str, Any]:
@@ -240,7 +287,13 @@ class CloverClient:
 
     async def merchant_currency(self) -> str:
         info = await self.get_merchant_info()
-        return str(info.get("defaultCurrency") or info.get("currency") or "USD")
+        currency = info.get("defaultCurrency") or info.get("currency")
+        if not currency:
+            raise ValueError(
+                f"Merchant {self._config.merchant_id} response is missing currency metadata; "
+                "cannot safely label monetary amounts."
+            )
+        return str(currency)
 
     async def merchant_timezone(self) -> str:
         info = await self.get_merchant_info()
