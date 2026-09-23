@@ -113,6 +113,15 @@ reconciliation that followed. 56 tools total (up from 47 in 0.7.0).
 - CI enforces coverage — `pytest-cov` with `--cov-fail-under=85` (current 89%).
 
 ### Fixed
+- Eight audit regressions: tenant OAuth stores now use merchant/environment-bound
+  identity digests; request URLs cannot escape their merchant; fractional stock
+  no longer passes an integer expected-value precheck; customer expansions are
+  allowlist-shaped; delayed 401s reuse the failed request's token snapshot;
+  uncertain writes are audited; empty successful updates retain acknowledged
+  price/name values; and missing currency raises an error instead of assuming USD.
+  Existing multi-tenant OAuth stores need an ownership-verified migration or fresh
+  grants; see `docs/DEPLOY.md`. Static-token deployments are unaffected by that
+  token-store migration.
 - **Cross-process token-refresh race** — the OAuth refresh now holds a POSIX
   `flock` on the token store (re-reading under the lock), so replicas sharing one
   store can't both spend a single-use refresh token. Windows (no `fcntl`) falls
