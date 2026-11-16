@@ -6,6 +6,7 @@ create_modifier_group, create_modifier, create_tag — require INVENTORY_W.
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Any
 
 from clover_mcp.client import CloverClient
@@ -359,8 +360,10 @@ async def set_item_price_cents(
         }
 
     raw = await client.put(f"/items/{item_id}", json=put_body)
-    # Clover may return the full updated item or an empty body on success
-    shaped = shape_item(raw) if raw else current_item
+    # Clover may return the full updated item or an empty body on success.  The
+    # pre-check is the last complete snapshot we have, so preserve it while
+    # overlaying the field the successful PUT acknowledged.
+    shaped = {**current_item, "price": new_price_cents, **(shape_item(raw) if raw else {})}
     return {"ok": True, "item": shaped}
 
 
@@ -403,8 +406,25 @@ async def set_item_stock_quantity(
 
     # Pre-check GET from item_stocks endpoint
     stock_raw = await client.get(f"/item_stocks/{item_id}")
-    # Clover returns quantity as a float (e.g. 20.0); normalise to int for comparison
-    current_quantity: int = int(stock_raw.get("quantity", -1))
+    # Clover commonly returns an integral quantity as a float (e.g. 20.0), but
+    # fractional stock is meaningful and must not be truncated for the lock.
+    current_quantity = stock_raw.get("quantity")
+    if (
+        isinstance(current_quantity, bool)
+        or not isinstance(current_quantity, (int, float))
+        or not math.isfinite(current_quantity)
+    ):
+        return {
+            "ok": False,
+            "reason": "optimistic_lock_mismatch",
+            "message": (
+                f"Stock mismatch: expected {expected_current_quantity} units "
+                f"but current value is {current_quantity!r}. "
+                "Refresh item data before retrying."
+            ),
+            "expected": expected_current_quantity,
+            "actual": current_quantity,
+        }
 
     if current_quantity != expected_current_quantity:
         return {
@@ -522,7 +542,9 @@ async def update_item_name(
         return confirmation_required(how)
 
     raw = await client.post(path, json=body)
-    shaped = shape_item(raw) if raw else current_item
+    # A successful partial update may have an empty response.  Keep the
+    # pre-check snapshot for unrelated fields and report the acknowledged name.
+    shaped = {**current_item, "name": stripped_name, **(shape_item(raw) if raw else {})}
     return {"ok": True, "item": shaped}
 
 

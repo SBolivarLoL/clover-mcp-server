@@ -8,6 +8,7 @@ windows lean.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 
@@ -109,31 +110,28 @@ def shape_order(raw: dict[str, Any]) -> dict[str, Any]:
         "modifiedTime",
         "clientCreatedTime",
         "note",
-        "orderType",
     )
+    if "orderType" in raw:
+        order_type = raw["orderType"]
+        if isinstance(order_type, dict):
+            out["orderType"] = shape_order_type(order_type)
+        elif isinstance(order_type, (str, int, float, bool)) or order_type is None:
+            out["orderType"] = order_type
     if "employee" in raw and isinstance(raw["employee"], dict):
         out["employee_id"] = raw["employee"].get("id")
     # Customer IDs only — never full customer records with card data
     if "customers" in raw:
-        custs = raw["customers"]
-        elements = custs.get("elements", custs) if isinstance(custs, dict) else custs
-        out["customer_ids"] = [c.get("id") for c in elements if isinstance(c, dict)]
+        out["customer_ids"] = [c.get("id") for c in _elements_of(raw["customers"])]
     # Line items — lean projection
     if "lineItems" in raw:
-        items = raw["lineItems"]
-        elements = items.get("elements", items) if isinstance(items, dict) else items
-        out["line_items"] = [_shape_line_item(li) for li in elements if isinstance(li, dict)]
+        out["line_items"] = [_shape_line_item(li) for li in _elements_of(raw["lineItems"])]
     # Payments — get_order expands these; shape via shape_payment (strips cardTransaction)
     if "payments" in raw:
-        pmts = raw["payments"]
-        elements = pmts.get("elements", pmts) if isinstance(pmts, dict) else pmts
-        out["payments"] = [shape_payment(p) for p in elements if isinstance(p, dict)]
+        out["payments"] = [shape_payment(p) for p in _elements_of(raw["payments"])]
     # Order-level discounts — present only when expanded / applied.
     if "discounts" in raw:
-        discs = raw["discounts"]
-        elements = discs.get("elements", discs) if isinstance(discs, dict) else discs
         out["discounts"] = [
-            _pick(d, "name", "amount", "percentage") for d in elements if isinstance(d, dict)
+            _pick(d, "name", "amount", "percentage") for d in _elements_of(raw["discounts"])
         ]
     # Service charges total
     if "serviceCharge" in raw and isinstance(raw["serviceCharge"], dict):
@@ -159,14 +157,12 @@ def _shape_line_item(raw: dict[str, Any]) -> dict[str, Any]:
         out["item_id"] = raw["item"].get("id")
     # Order detail sub-resources — present only when expanded / applied.
     if "modifications" in raw:
-        mods = raw["modifications"]
-        elements = mods.get("elements", mods) if isinstance(mods, dict) else mods
-        out["modifications"] = [_pick(m, "name", "amount") for m in elements if isinstance(m, dict)]
+        out["modifications"] = [
+            _pick(m, "name", "amount") for m in _elements_of(raw["modifications"])
+        ]
     if "discounts" in raw:
-        discs = raw["discounts"]
-        elements = discs.get("elements", discs) if isinstance(discs, dict) else discs
         out["discounts"] = [
-            _pick(d, "name", "amount", "percentage") for d in elements if isinstance(d, dict)
+            _pick(d, "name", "amount", "percentage") for d in _elements_of(raw["discounts"])
         ]
     return out
 
@@ -312,8 +308,41 @@ def shape_customer(raw: dict[str, Any], include: list[str] | None = None) -> dic
     allowed_includes = {"addresses", "orders"}
     for field in include or []:
         if field in allowed_includes and field in raw:
-            out[field] = raw[field]
+            if field == "addresses":
+                out[field] = _shape_customer_collection(raw[field], shape_address)
+            else:
+                out[field] = _shape_customer_collection(raw[field], shape_order)
     return out
+
+
+def shape_address(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project a customer address without forwarding Clover metadata or refs."""
+    return _pick(
+        raw,
+        "id",
+        "address1",
+        "address2",
+        "address3",
+        "city",
+        "state",
+        "zip",
+        "country",
+        "label",
+    )
+
+
+def _shape_customer_collection(
+    value: Any, shaper: Callable[[dict[str, Any]], dict[str, Any]]
+) -> list[dict[str, Any]] | dict[str, Any]:
+    """Shape an expanded customer collection while retaining its public wrapper shape."""
+    if isinstance(value, list):
+        elements = value
+        shaped = [shaper(item) for item in elements if isinstance(item, dict)]
+        return shaped
+    if isinstance(value, dict):
+        shaped = [shaper(item) for item in _elements_of(value)]
+        return {"elements": shaped}
+    return []
 
 
 def shape_employee(raw: dict[str, Any]) -> dict[str, Any]:

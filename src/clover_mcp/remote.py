@@ -15,6 +15,7 @@ credentials, from which we build a request-scoped client.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import os
 import sys
@@ -192,9 +193,22 @@ def tenant_config(base: Config, tenants: dict[str, Any], key: str) -> Config:
         )
 
     # Isolate each tenant's token store so oauth_refresh rotation can't clobber or
-    # leak between tenants (they'd otherwise share base.token_store).
-    safe = "".join(c if c.isalnum() else "_" for c in key)
-    token_store = base.merchant_store.parent / f"tokens-{safe}.json"
+    # leak between tenants. A sanitized identity is not an identity: punctuation
+    # and case can collide on both POSIX and Windows paths. Bind the filename to
+    # the complete, case-sensitive tenant and merchant/environment tuple instead.
+    store_identity = json.dumps(
+        {
+            "tenant": key,
+            "merchant_id": str(entry["merchant_id"]),
+            "region": str(entry.get("region", base.region)).lower(),
+            "sandbox": sandbox,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    identity_digest = hashlib.sha256(store_identity).hexdigest()[:32]
+    token_store = base.merchant_store.parent / f"tokens-v2-{identity_digest}.json"
     try:
         return dataclasses.replace(
             base,

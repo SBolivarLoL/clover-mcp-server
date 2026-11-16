@@ -264,7 +264,13 @@ def test_tenant_config_builds_scoped_single_merchant() -> None:
     assert scoped.sandbox is True
     assert scoped.multi_merchant is False
     # per-tenant token store isolation (no cross-tenant clobber on oauth_refresh)
-    assert scoped.token_store.name == "tokens-a_b_c.json"
+    assert scoped.token_store.name.startswith("tokens-")
+    assert scoped.token_store.suffix == ".json"
+    assert (
+        scoped.token_store == tenant_config(_base_config(region="na"), tenants, "a@b.c").token_store
+    )
+    other = tenant_config(_base_config(region="na"), {"a+b.c": tenants["a@b.c"]}, "a+b.c")
+    assert scoped.token_store != other.token_store
 
 
 def test_tenant_config_rejects_string_sandbox_flag() -> None:
